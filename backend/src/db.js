@@ -17,9 +17,17 @@ function buildPoolConfig(config) {
 
 let poolPromise = null;
 
+/**
+ * La base usa auto-pausa (tier serverless): si la primera conexion falla porque
+ * todavia esta "despertando", no hay que dejar cacheado ese fallo para siempre,
+ * sino permitir que el proximo request reintente.
+ */
 function getPool(config) {
   if (!poolPromise) {
-    poolPromise = sql.connect(buildPoolConfig(config));
+    poolPromise = sql.connect(buildPoolConfig(config)).catch((err) => {
+      poolPromise = null;
+      throw err;
+    });
   }
   return poolPromise;
 }
