@@ -1,0 +1,39 @@
+{
+  "name": "tesis-tray",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Icono de bandeja del sistema: unica interfaz visible del sistema de seguimiento por WiFi. No tiene ventana principal.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win portable",
+    "build:mac": "electron-builder --mac dir",
+    "install-autostart": "node scripts/windows/install-autostart.js",
+    "uninstall-autostart": "node scripts/windows/uninstall-autostart.js"
+  },
+  "devDependencies": {
+    "electron": "^44.3.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "cl.empresa.tesistray",
+    "productName": "TesisTray",
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "portable",
+      "icon": "assets/icon.png"
+    },
+    "mac": {
+      "target": "dir",
+      "icon": "assets/icon.png",
+      "category": "public.app-category.utilities"
+    }
+  }
+}

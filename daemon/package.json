@@ -1,0 +1,22 @@
+{
+  "name": "tesis-daemon",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Servicio de seguimiento de ubicacion por WiFi para notebooks corporativos (sin GUI, sin Electron).",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test:collectors": "node scripts/test-collectors.js",
+    "generate-key": "node scripts/generate-key.js",
+    "mock-server": "node scripts/mock-server.js",
+    "start": "node src/index.js",
+    "service:install": "node scripts/windows/install-service.js",
+    "service:uninstall": "node scripts/windows/uninstall-service.js"
+  },
+  "optionalDependencies": {
+    "node-windows": "^1.0.0-beta.8"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "tesis-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "API que recibe los registros del daemon y los guarda en Azure SQL Database.",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "mssql": "^11.0.1"
+  }
+}
