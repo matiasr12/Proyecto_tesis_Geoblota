@@ -9,6 +9,7 @@ const { PendingRecordsStore } = require('./storage/db');
 const { createScheduler } = require('./scheduler');
 const { registerEquipo } = require('./api/client');
 const { markEquipoInfoSent } = require('./equipoRegistration');
+const { getComputerName } = require('./collectors');
 
 const NOTICE_TEXT =
   'Este equipo esta siendo monitoreado para control de inventario de la empresa.';
@@ -114,7 +115,8 @@ ipcMain.handle('guardar-equipo-info', async (event, datos) => {
   // reintenta solo en el siguiente tick porque el archivo sigue sin marcarse
   // como enviado.
   try {
-    await registerEquipo(datos, config);
+    const { computerName } = await getComputerName();
+    await registerEquipo({ ...datos, computerName }, config);
     markEquipoInfoSent(config.dataDir, datos);
   } catch {
     // reintenta el scheduler

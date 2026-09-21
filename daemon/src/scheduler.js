@@ -1,12 +1,14 @@
 'use strict';
 
-const { collectSnapshot } = require('./collectors');
+const { collectSnapshot, getComputerName } = require('./collectors');
 const { sendRecords, registerEquipo } = require('./api/client');
 const { readPendingEquipoInfo, markEquipoInfoSent } = require('./equipoRegistration');
 
 /**
  * Si el tray dejo datos de Faena/Area/Persona sin enviar (equipo-info.json),
- * los manda una sola vez. Si falla, no hace nada mas: el proximo tick reintenta
+ * los manda una sola vez. La ventana de registro no pregunta el nombre del
+ * equipo (no tiene sentido que lo tipee una persona), asi que se agrega aca
+ * antes de mandarlo. Si falla, no hace nada mas: el proximo tick reintenta
  * solo porque el archivo sigue sin marcarse como enviado. No afecta el estado
  * online/offline del envio de registros, son cosas independientes.
  */
@@ -15,7 +17,8 @@ async function trySendPendingEquipoInfo(config, dataDir, logger) {
   if (!pending) return;
 
   try {
-    await registerEquipo(pending, config);
+    const { computerName } = await getComputerName();
+    await registerEquipo({ ...pending, computerName }, config);
     markEquipoInfoSent(dataDir, pending);
   } catch (error) {
     logger.error('Fallo al registrar el equipo (se reintenta en el proximo tick):', error.message);
