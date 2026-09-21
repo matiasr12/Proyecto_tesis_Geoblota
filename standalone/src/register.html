@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<title>Registrar equipo</title>
+<style>
+  body {
+    font-family: -apple-system, Segoe UI, Arial, sans-serif;
+    margin: 0;
+    padding: 20px;
+    background: #f4f5f7;
+    color: #1a1a1a;
+  }
+  h1 {
+    font-size: 16px;
+    margin: 0 0 16px;
+  }
+  label {
+    display: block;
+    font-size: 12px;
+    margin: 10px 0 4px;
+    color: #444;
+  }
+  input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    font-size: 13px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+  }
+  button {
+    margin-top: 18px;
+    width: 100%;
+    padding: 8px;
+    font-size: 13px;
+    border: none;
+    border-radius: 4px;
+    background: #2f6fed;
+    color: white;
+    cursor: pointer;
+  }
+  button:disabled {
+    background: #9db6ee;
+    cursor: default;
+  }
+  #mensaje {
+    margin-top: 10px;
+    font-size: 12px;
+    color: #b00020;
+  }
+</style>
+</head>
+<body>
+  <h1>Registrar equipo</h1>
+
+  <form id="form">
+    <label for="faena">Faena</label>
+    <input id="faena" required />
+
+    <label for="area">Área</label>
+    <input id="area" required />
+
+    <label for="rut">Rut de la persona responsable</label>
+    <input id="rut" required />
+
+    <label for="nombre">Nombre</label>
+    <input id="nombre" required />
+
+    <label for="apellido">Apellido</label>
+    <input id="apellido" required />
+
+    <label for="codigoActivo">Código de activo</label>
+    <input id="codigoActivo" required />
+
+    <button type="submit" id="guardar">Guardar</button>
+  </form>
+  <div id="mensaje"></div>
+
+  <script>
+    const form = document.getElementById('form');
+    const mensaje = document.getElementById('mensaje');
+    const boton = document.getElementById('guardar');
+
+    window.equipoAPI.cargar().then((datos) => {
+      if (!datos) return;
+      for (const campo of ['faena', 'area', 'rut', 'nombre', 'apellido', 'codigoActivo']) {
+        document.getElementById(campo).value = datos[campo] || '';
+      }
+    });
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      boton.disabled = true;
+      mensaje.textContent = '';
+
+      const datos = {
+        faena: document.getElementById('faena').value.trim(),
+        area: document.getElementById('area').value.trim(),
+        rut: document.getElementById('rut').value.trim(),
+        nombre: document.getElementById('nombre').value.trim(),
+        apellido: document.getElementById('apellido').value.trim(),
+        codigoActivo: document.getElementById('codigoActivo').value.trim(),
+      };
+
+      try {
+        await window.equipoAPI.guardar(datos);
+        window.close();
+      } catch (error) {
+        mensaje.textContent = 'No se pudo guardar: ' + error.message;
+        boton.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

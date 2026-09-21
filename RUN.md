@@ -47,6 +47,31 @@ responsable y Codigo de activo del equipo. El daemon manda esos datos una sola v
 backend (no en cada ciclo de 15 min). Se puede volver a abrir esa ventana despues desde
 el menu ("Registrar/editar equipo...") para corregir los datos.
 
+## 1.b Build de demo para pendrive (instalador normal, con ventanas)
+
+`standalone/` es una version alternativa que junta `tray` + `daemon` en una sola app
+Electron (sin servicio de Windows separado), pensada para repartir en un pendrive a
+alguien que solo quiere instalar y probar, sin tocar `.env` ni la terminal. No
+reemplaza a `daemon`/`tray` (esos siguen siendo el diseño real para la empresa, con
+servicio de Windows a nivel sistema); es un build aparte, self-contained.
+
+```bash
+cd standalone
+npm install
+cp src/secrets.example.js src/secrets.js   # completar SERVER_URL y JWT_TOKEN (nunca se commitea)
+npm run build:win                          # genera standalone/dist/TesisInventario Setup <version>.exe
+```
+
+Ese `.exe` es un instalador NSIS normal (Siguiente > Instalar > Finalizar, elige
+carpeta, crea acceso directo y entrada en "Agregar o quitar programas"). Al primer
+inicio de sesion arranca solo (registrado via `app.setLoginItemSettings`, sin scripts
+de autostart manuales) y abre la ventana de registro de equipo si es la primera vez.
+
+La URL del backend y el token van fijos en `standalone/src/secrets.js` (nunca se
+commitea, el repo es publico) y quedan compilados dentro del `.exe` — quien instala no
+completa nada. Si cambia el backend o el `JWT_SECRET`, hay que actualizar
+`secrets.js` y volver a generar el instalador.
+
 ## 2. Empaquetar el tray como ejecutable
 
 ```bash

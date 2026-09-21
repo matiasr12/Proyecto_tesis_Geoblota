@@ -2,4 +2,7 @@ node_modules/
 .env
 *.log
 tray/dist/
+standalone/dist/
+standalone/src/secrets.js
 daemon/data/
+.obsidian/
