@@ -2,7 +2,7 @@
 
 const http = require('http');
 const { isAuthorized } = require('./auth');
-const { insertRecords, upsertEquipoRegistro } = require('./db');
+const { insertRecords, upsertEquipoRegistro, getEquiposConUltimaUbicacion } = require('./db');
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MB, de sobra para un lote de registros
 
@@ -88,14 +88,40 @@ async function handleEquipoRegistro(req, res) {
   }
 }
 
+async function handleListEquipos(req, res) {
+  try {
+    const equipos = await getEquiposConUltimaUbicacion(req.config);
+    res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ equipos }));
+  } catch (err) {
+    console.error('[backend] error al listar equipos:', err.message);
+    res.writeHead(500).end();
+  }
+}
+
 const ROUTES = {
-  '/api/device-records': handleDeviceRecords,
-  '/api/equipos/registro': handleEquipoRegistro,
+  POST: {
+    '/api/device-records': handleDeviceRecords,
+    '/api/equipos/registro': handleEquipoRegistro,
+  },
+  GET: {
+    '/api/equipos': handleListEquipos,
+  },
 };
 
 function createServer(config) {
   return http.createServer((req, res) => {
-    const handler = req.method === 'POST' ? ROUTES[req.url] : null;
+    // CORS: el panel web que consume esta API corre en otro origen (localhost
+    // en desarrollo, o el dominio donde se despliegue despues).
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204).end();
+      return;
+    }
+
+    const handler = ROUTES[req.method] && ROUTES[req.method][req.url];
     if (!handler) {
       res.writeHead(404).end();
       return;

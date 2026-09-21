@@ -198,4 +198,43 @@ async function upsertEquipoRegistro(config, { computerName, codigoActivo, rut, n
   }
 }
 
-module.exports = { insertRecords, upsertEquipoRegistro };
+/**
+ * Un renglon por Equipo, con su persona/area/faena (si ya se registro) y su
+ * ultima ubicacion conocida (si ya mando algun DeviceRecords). Pensado para
+ * alimentar tanto el mapa como una tabla de inventario en el panel web.
+ */
+async function getEquiposConUltimaUbicacion(config) {
+  const pool = await getPool(config);
+  const result = await pool.request().query(`
+    SELECT
+      e.Id AS equipoId,
+      e.CodigoActivo AS codigoActivo,
+      e.ComputerName AS computerName,
+      p.Rut AS rut,
+      p.Nombre AS personalNombre,
+      p.Apellido AS personalApellido,
+      a.Nombre AS area,
+      f.Nombre AS faena,
+      dr.Bssids AS bssids,
+      dr.Ip AS ip,
+      dr.RecordTimestamp AS recordTimestamp,
+      dr.ReceivedAt AS receivedAt
+    FROM dbo.Equipos e
+    OUTER APPLY (
+      SELECT TOP 1 dr2.Bssids, dr2.Ip, dr2.RecordTimestamp, dr2.ReceivedAt
+      FROM dbo.DeviceRecords dr2
+      WHERE dr2.EquipoId = e.Id
+      ORDER BY dr2.RecordTimestamp DESC
+    ) dr
+    LEFT JOIN dbo.Personal p ON p.Id = e.PersonalId
+    LEFT JOIN dbo.Areas a ON a.Id = p.AreaId
+    LEFT JOIN dbo.Faenas f ON f.Id = p.FaenaId
+  `);
+
+  return result.recordset.map((row) => ({
+    ...row,
+    bssids: row.bssids ? JSON.parse(row.bssids) : [],
+  }));
+}
+
+module.exports = { insertRecords, upsertEquipoRegistro, getEquiposConUltimaUbicacion };
