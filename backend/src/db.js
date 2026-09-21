@@ -86,4 +86,116 @@ async function insertRecords(config, records) {
   }
 }
 
-module.exports = { insertRecords };
+async function getOrCreateFaenaId(transaction, nombre) {
+  const select = new sql.Request(transaction);
+  select.input('nombre', sql.NVarChar, nombre);
+  const existing = await select.query('SELECT Id FROM dbo.Faenas WHERE Nombre = @nombre');
+  if (existing.recordset.length > 0) return existing.recordset[0].Id;
+
+  const insert = new sql.Request(transaction);
+  insert.input('nombre', sql.NVarChar, nombre);
+  const created = await insert.query('INSERT INTO dbo.Faenas (Nombre) OUTPUT INSERTED.Id VALUES (@nombre)');
+  return created.recordset[0].Id;
+}
+
+async function getOrCreateAreaId(transaction, nombre, faenaId) {
+  const select = new sql.Request(transaction);
+  select.input('nombre', sql.NVarChar, nombre);
+  select.input('faenaId', sql.Int, faenaId);
+  const existing = await select.query('SELECT Id FROM dbo.Areas WHERE Nombre = @nombre AND FaenaId = @faenaId');
+  if (existing.recordset.length > 0) return existing.recordset[0].Id;
+
+  const insert = new sql.Request(transaction);
+  insert.input('nombre', sql.NVarChar, nombre);
+  insert.input('faenaId', sql.Int, faenaId);
+  const created = await insert.query(
+    'INSERT INTO dbo.Areas (Nombre, FaenaId) OUTPUT INSERTED.Id VALUES (@nombre, @faenaId)'
+  );
+  return created.recordset[0].Id;
+}
+
+async function upsertPersonal(transaction, { rut, nombre, apellido, areaId, faenaId }) {
+  const select = new sql.Request(transaction);
+  select.input('rut', sql.NVarChar, rut);
+  const existing = await select.query('SELECT Id FROM dbo.Personal WHERE Rut = @rut');
+
+  if (existing.recordset.length > 0) {
+    const personalId = existing.recordset[0].Id;
+    const update = new sql.Request(transaction);
+    update.input('id', sql.Int, personalId);
+    update.input('nombre', sql.NVarChar, nombre);
+    update.input('apellido', sql.NVarChar, apellido);
+    update.input('areaId', sql.Int, areaId);
+    update.input('faenaId', sql.Int, faenaId);
+    await update.query(`
+      UPDATE dbo.Personal SET Nombre = @nombre, Apellido = @apellido, AreaId = @areaId, FaenaId = @faenaId
+      WHERE Id = @id
+    `);
+    return personalId;
+  }
+
+  const insert = new sql.Request(transaction);
+  insert.input('rut', sql.NVarChar, rut);
+  insert.input('nombre', sql.NVarChar, nombre);
+  insert.input('apellido', sql.NVarChar, apellido);
+  insert.input('areaId', sql.Int, areaId);
+  insert.input('faenaId', sql.Int, faenaId);
+  const created = await insert.query(`
+    INSERT INTO dbo.Personal (Rut, Nombre, Apellido, AreaId, FaenaId)
+    OUTPUT INSERTED.Id
+    VALUES (@rut, @nombre, @apellido, @areaId, @faenaId)
+  `);
+  return created.recordset[0].Id;
+}
+
+async function upsertEquipo(transaction, { computerName, codigoActivo, personalId }) {
+  const select = new sql.Request(transaction);
+  select.input('computerName', sql.NVarChar, computerName);
+  const existing = await select.query('SELECT Id FROM dbo.Equipos WHERE ComputerName = @computerName');
+
+  if (existing.recordset.length > 0) {
+    const equipoId = existing.recordset[0].Id;
+    const update = new sql.Request(transaction);
+    update.input('id', sql.Int, equipoId);
+    update.input('codigoActivo', sql.NVarChar, codigoActivo);
+    update.input('personalId', sql.Int, personalId);
+    await update.query('UPDATE dbo.Equipos SET CodigoActivo = @codigoActivo, PersonalId = @personalId WHERE Id = @id');
+    return equipoId;
+  }
+
+  const insert = new sql.Request(transaction);
+  insert.input('computerName', sql.NVarChar, computerName);
+  insert.input('codigoActivo', sql.NVarChar, codigoActivo);
+  insert.input('personalId', sql.Int, personalId);
+  const created = await insert.query(`
+    INSERT INTO dbo.Equipos (ComputerName, CodigoActivo, PersonalId)
+    OUTPUT INSERTED.Id
+    VALUES (@computerName, @codigoActivo, @personalId)
+  `);
+  return created.recordset[0].Id;
+}
+
+/**
+ * Registro que manda el daemon una sola vez (no en cada tick): vincula el
+ * equipo con la persona responsable, su area y su faena. Es upsert en cada
+ * nivel (por nombre de faena/area, por rut de la persona, por ComputerName
+ * del equipo) para que reintentar el mismo registro sea seguro.
+ */
+async function upsertEquipoRegistro(config, { computerName, codigoActivo, rut, nombre, apellido, faena, area }) {
+  const pool = await getPool(config);
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+
+  try {
+    const faenaId = await getOrCreateFaenaId(transaction, faena);
+    const areaId = await getOrCreateAreaId(transaction, area, faenaId);
+    const personalId = await upsertPersonal(transaction, { rut, nombre, apellido, areaId, faenaId });
+    await upsertEquipo(transaction, { computerName, codigoActivo, personalId });
+    await transaction.commit();
+  } catch (err) {
+    await transaction.rollback();
+    throw err;
+  }
+}
+
+module.exports = { insertRecords, upsertEquipoRegistro };

@@ -27,4 +27,28 @@ async function sendRecords(records, config) {
   return true;
 }
 
-module.exports = { sendRecords };
+/**
+ * Manda el registro de Faena/Area/Persona/Equipo. Se llama una sola vez
+ * (el scheduler no reintenta si ya se marco como enviado).
+ */
+async function registerEquipo(equipoInfo, config) {
+  const url = `${config.serverUrl}${config.equipoRegistroPath}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.jwtToken}`,
+    },
+    body: JSON.stringify(equipoInfo),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+
+  if (!response.ok) {
+    throw new Error(`El servidor respondio ${response.status} ${response.statusText}`);
+  }
+
+  return true;
+}
+
+module.exports = { sendRecords, registerEquipo };

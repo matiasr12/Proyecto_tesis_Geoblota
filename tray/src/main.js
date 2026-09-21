@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, Tray, Menu } = require('electron');
+const { app, Tray, Menu, BrowserWindow, ipcMain } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -31,11 +31,20 @@ function getDefaultDataDir() {
 
 const dataDir = process.env.DAEMON_DATA_DIR || getDefaultDataDir();
 const statusFilePath = path.join(dataDir, 'status.json');
+const equipoInfoPath = path.join(dataDir, 'equipo-info.json');
 
 function readDaemonStatus() {
   try {
     const raw = fs.readFileSync(statusFilePath, 'utf8');
     return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function readEquipoInfo() {
+  try {
+    return JSON.parse(fs.readFileSync(equipoInfoPath, 'utf8'));
   } catch {
     return null;
   }
@@ -67,6 +76,8 @@ function buildMenuTemplate(status) {
   items.push(
     { label: `Version: ${version}`, enabled: false },
     { type: 'separator' },
+    { label: 'Registrar/editar equipo...', click: openRegisterWindow },
+    { type: 'separator' },
     { label: NOTICE_TEXT, enabled: false }
   );
 
@@ -77,6 +88,44 @@ const ICON_ONLINE_PATH = path.join(__dirname, '..', 'assets', 'tray-icon.png');
 const ICON_OFFLINE_PATH = path.join(__dirname, '..', 'assets', 'tray-icon-offline.png');
 
 let tray = null;
+let registerWindow = null;
+
+/**
+ * Ventana para completar Faena/Area/Rut/Nombre/Apellido/Codigo de activo.
+ * Se abre sola la primera vez (no hay equipo-info.json todavia) y queda
+ * disponible en el menu para corregir los datos despues. Se destruye al
+ * cerrarse, no queda ocupando memoria de fondo.
+ */
+function openRegisterWindow() {
+  if (registerWindow) {
+    registerWindow.focus();
+    return;
+  }
+
+  registerWindow = new BrowserWindow({
+    width: 380,
+    height: 480,
+    resizable: false,
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'registerPreload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  registerWindow.loadFile(path.join(__dirname, 'register.html'));
+  registerWindow.on('closed', () => {
+    registerWindow = null;
+  });
+}
+
+ipcMain.handle('cargar-equipo-info', () => readEquipoInfo());
+
+ipcMain.handle('guardar-equipo-info', (event, datos) => {
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(equipoInfoPath, JSON.stringify({ ...datos, sent: false }, null, 2), 'utf8');
+  return true;
+});
 
 function refreshMenu() {
   if (!tray) return;
@@ -95,10 +144,15 @@ app.whenReady().then(() => {
 
   refreshMenu();
   setInterval(refreshMenu, STATUS_POLL_MS);
+
+  if (!readEquipoInfo()) {
+    openRegisterWindow();
+  }
 });
 
 app.on('window-all-closed', (event) => {
-  // Nunca hay ventanas: no cerrar la app cuando este evento se dispare igual por
-  // comportamiento por defecto de Electron.
+  // La app vive en el tray, no en ventanas: la ventana de registro se abre y
+  // cierra puntualmente, pero cerrarla no debe cerrar la app (comportamiento
+  // por defecto de Electron que hay que anular).
   event.preventDefault();
 });

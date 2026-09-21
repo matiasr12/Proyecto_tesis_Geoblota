@@ -31,6 +31,7 @@ function getDefaultDataDir() {
  *  - JWT_TOKEN (obligatoria): token JWT usado para autenticar cada envio
  *  - DB_ENCRYPTION_KEY (obligatoria): clave hex de 64 caracteres (32 bytes) para AES-256-GCM
  *  - SERVER_RECORDS_PATH (opcional): path del endpoint de envio, default /api/device-records
+ *  - EQUIPO_REGISTRO_PATH (opcional): path del endpoint de registro de equipo, default /api/equipos/registro
  *  - COLLECT_INTERVAL_MS (opcional): intervalo del loop, default 15 minutos
  *  - DAEMON_DATA_DIR (opcional): carpeta para el SQLite local y el archivo de estado
  */
@@ -48,6 +49,7 @@ function loadConfig() {
     jwtToken,
     dbEncryptionKey: Buffer.from(dbEncryptionKeyHex, 'hex'),
     recordsPath: process.env.SERVER_RECORDS_PATH || '/api/device-records',
+    equipoRegistroPath: process.env.EQUIPO_REGISTRO_PATH || '/api/equipos/registro',
     collectIntervalMs: Number(process.env.COLLECT_INTERVAL_MS) || 15 * 60 * 1000,
     dataDir: process.env.DAEMON_DATA_DIR || getDefaultDataDir(),
   };

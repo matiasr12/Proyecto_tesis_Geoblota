@@ -38,7 +38,14 @@ npm start
 Busca el icono en la bandeja del sistema (junto al reloj, puede estar en la flecha de
 "iconos ocultos"). El menu se actualiza solo cada 15s leyendo lo que el daemon va
 escribiendo. Si el daemon todavia no corrio ningun ciclo, el menu muestra "Esperando
-primer registro...".
+primer registro...". El icono se pone rojo cuando el ultimo envio del daemon fallo
+(sin internet); sigue recolectando igual, solo que encolado hasta reconectar.
+
+La primera vez que corre (no existe `equipo-info.json` en `DAEMON_DATA_DIR`) se abre
+sola una ventana para completar Faena, Area, Rut/Nombre/Apellido de la persona
+responsable y Codigo de activo del equipo. El daemon manda esos datos una sola vez al
+backend (no en cada ciclo de 15 min). Se puede volver a abrir esa ventana despues desde
+el menu ("Registrar/editar equipo...") para corregir los datos.
 
 ## 2. Empaquetar el tray como ejecutable
 
@@ -99,6 +106,9 @@ bash scripts/macos/install-launchagent.sh             # el tray, sin sudo
 
 El codigo vive en `backend/`. Recibe `POST /api/device-records` con
 `Authorization: Bearer <JWT_TOKEN>` y guarda los registros en Azure SQL Database.
+Tambien recibe `POST /api/equipos/registro` (mismo token) con los datos de
+Faena/Area/Persona/Equipo que manda el tray una sola vez, y arma/actualiza esas
+tablas relacionadas (`Faenas`, `Areas`, `Personal`, `Equipos`).
 
 ```bash
 cd backend
@@ -127,6 +137,7 @@ push a `main`).
 | `JWT_TOKEN` | si | Token para autenticar cada envio |
 | `DB_ENCRYPTION_KEY` | si | Hex de 64 caracteres, generar con `npm run generate-key` |
 | `SERVER_RECORDS_PATH` | no | Default `/api/device-records` |
+| `EQUIPO_REGISTRO_PATH` | no | Default `/api/equipos/registro` |
 | `COLLECT_INTERVAL_MS` | no | Default 900000 (15 min) |
 | `DAEMON_DATA_DIR` | no | Donde vive el SQLite y `status.json`; default `%PROGRAMDATA%\TesisDaemon` (Windows) o `/Library/Application Support/TesisDaemon` (macOS) |
 
