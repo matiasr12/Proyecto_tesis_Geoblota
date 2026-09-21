@@ -40,7 +40,7 @@ function chunk(type, data) {
   return Buffer.concat([lenBuf, typeBuf, data, crcBuf]);
 }
 
-function generatePng(size, outPath) {
+function generatePng(size, outPath, color = [0x2f, 0x6f, 0xed, 0xff]) {
   const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
   const ihdrData = Buffer.alloc(13);
@@ -53,6 +53,7 @@ function generatePng(size, outPath) {
   ihdrData[12] = 0;
   const ihdr = chunk('IHDR', ihdrData);
 
+  const [r, g, b, a] = color;
   const center = size / 2;
   const radius = size / 2 - Math.max(2, size * 0.06);
   const raw = Buffer.alloc(size * (1 + size * 4));
@@ -64,10 +65,10 @@ function generatePng(size, outPath) {
       const dy = y - center + 0.5;
       const inside = dx * dx + dy * dy <= radius * radius;
       if (inside) {
-        raw[offset++] = 0x2f; // R
-        raw[offset++] = 0x6f; // G
-        raw[offset++] = 0xed; // B
-        raw[offset++] = 0xff; // A
+        raw[offset++] = r;
+        raw[offset++] = g;
+        raw[offset++] = b;
+        raw[offset++] = a;
       } else {
         raw[offset++] = 0;
         raw[offset++] = 0;
@@ -86,5 +87,8 @@ function generatePng(size, outPath) {
   console.log(`Icono placeholder escrito en ${outPath}`);
 }
 
+const RED = [0xe0, 0x2f, 0x2f, 0xff];
+
 generatePng(32, path.join(ASSETS_DIR, 'tray-icon.png'));
+generatePng(32, path.join(ASSETS_DIR, 'tray-icon-offline.png'), RED);
 generatePng(256, path.join(ASSETS_DIR, 'icon.png'));

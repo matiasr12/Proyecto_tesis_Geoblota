@@ -46,9 +46,7 @@ function formatTimestamp(iso) {
   return new Date(iso).toLocaleString();
 }
 
-function buildMenuTemplate() {
-  const status = readDaemonStatus();
-
+function buildMenuTemplate(status) {
   const connectionLabel = status
     ? STATE_LABELS[status.state] || `Estado desconocido (${status.state})`
     : 'Esperando primer registro del servicio...';
@@ -75,11 +73,16 @@ function buildMenuTemplate() {
   return items;
 }
 
+const ICON_ONLINE_PATH = path.join(__dirname, '..', 'assets', 'tray-icon.png');
+const ICON_OFFLINE_PATH = path.join(__dirname, '..', 'assets', 'tray-icon-offline.png');
+
 let tray = null;
 
 function refreshMenu() {
   if (!tray) return;
-  tray.setContextMenu(Menu.buildFromTemplate(buildMenuTemplate()));
+  const status = readDaemonStatus();
+  tray.setContextMenu(Menu.buildFromTemplate(buildMenuTemplate(status)));
+  tray.setImage(status && status.state === 'offline' ? ICON_OFFLINE_PATH : ICON_ONLINE_PATH);
 }
 
 app.whenReady().then(() => {
@@ -87,8 +90,7 @@ app.whenReady().then(() => {
     app.dock.hide();
   }
 
-  const iconPath = path.join(__dirname, '..', 'assets', 'tray-icon.png');
-  tray = new Tray(iconPath);
+  tray = new Tray(ICON_ONLINE_PATH);
   tray.setToolTip('Seguimiento de ubicacion - control de inventario');
 
   refreshMenu();
