@@ -7,6 +7,8 @@ const { version } = require('../package.json');
 const { loadConfig } = require('./config');
 const { PendingRecordsStore } = require('./storage/db');
 const { createScheduler } = require('./scheduler');
+const { registerEquipo } = require('./api/client');
+const { markEquipoInfoSent } = require('./equipoRegistration');
 
 const NOTICE_TEXT =
   'Este equipo esta siendo monitoreado para control de inventario de la empresa.';
@@ -103,9 +105,21 @@ function openRegisterWindow() {
 
 ipcMain.handle('cargar-equipo-info', () => readEquipoInfo());
 
-ipcMain.handle('guardar-equipo-info', (event, datos) => {
+ipcMain.handle('guardar-equipo-info', async (event, datos) => {
   fs.mkdirSync(config.dataDir, { recursive: true });
   fs.writeFileSync(equipoInfoPath(), JSON.stringify({ ...datos, sent: false }, null, 2), 'utf8');
+
+  // Intenta mandarlo ya mismo en vez de esperar al proximo ciclo de 15 min.
+  // Si falla (sin internet, backend caido), no pasa nada: el scheduler
+  // reintenta solo en el siguiente tick porque el archivo sigue sin marcarse
+  // como enviado.
+  try {
+    await registerEquipo(datos, config);
+    markEquipoInfoSent(config.dataDir, datos);
+  } catch {
+    // reintenta el scheduler
+  }
+
   return true;
 });
 
