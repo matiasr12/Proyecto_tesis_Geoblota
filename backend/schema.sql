@@ -87,3 +87,20 @@ BEGIN
 
     ALTER TABLE dbo.DeviceRecords DROP COLUMN ComputerName;
 END;
+
+-- ============================================================================
+-- GIS / geofencing simple: a que Area pertenece cada router (BSSID) conocido.
+-- No usa coordenadas GPS (no relevadas todavia) -- la "ubicacion" de un
+-- equipo se infiere por que BSSID ve, no por lat/long. Alcanza para detectar
+-- si un equipo esta en un area distinta a la que tiene asignada su persona
+-- responsable (geofencing por WiFi en vez de por coordenadas).
+-- ============================================================================
+
+IF OBJECT_ID('dbo.BssidsArea', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.BssidsArea (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        Bssid NVARCHAR(17) NOT NULL UNIQUE,
+        AreaId INT NOT NULL REFERENCES dbo.Areas(Id)
+    );
+END;

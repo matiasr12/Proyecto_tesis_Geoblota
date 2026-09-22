@@ -231,10 +231,38 @@ async function getEquiposConUltimaUbicacion(config) {
     LEFT JOIN dbo.Faenas f ON f.Id = p.FaenaId
   `);
 
-  return result.recordset.map((row) => ({
-    ...row,
-    bssids: row.bssids ? JSON.parse(row.bssids) : [],
-  }));
+  const bssidToArea = await getBssidAreaMap(config);
+
+  return result.recordset.map((row) => {
+    const bssids = row.bssids ? JSON.parse(row.bssids) : [];
+    const areaDetectada = bssids.map((b) => bssidToArea.get(b.toLowerCase())).find(Boolean) || null;
+
+    return {
+      ...row,
+      bssids,
+      areaDetectada,
+      // Solo alerta si hay algo con que comparar: un equipo detectado en una
+      // zona con WiFi conocido, pero asignado a otra area distinta.
+      alerta: Boolean(areaDetectada && row.area && areaDetectada !== row.area),
+    };
+  });
+}
+
+/**
+ * Mapa BSSID (minuscula) -> nombre de Area, segun la tabla BssidsArea. No usa
+ * coordenadas GPS (no relevadas todavia): la ubicacion de un equipo se infiere
+ * por que router ve, no por lat/long. Alcanza para el geofencing basico
+ * (¿esta en una zona distinta a la asignada?) sin depender de PostGIS.
+ */
+async function getBssidAreaMap(config) {
+  const pool = await getPool(config);
+  const result = await pool.request().query(`
+    SELECT ba.Bssid AS bssid, a.Nombre AS area
+    FROM dbo.BssidsArea ba
+    JOIN dbo.Areas a ON a.Id = ba.AreaId
+  `);
+
+  return new Map(result.recordset.map((row) => [row.bssid.toLowerCase(), row.area]));
 }
 
 module.exports = { insertRecords, upsertEquipoRegistro, getEquiposConUltimaUbicacion };
