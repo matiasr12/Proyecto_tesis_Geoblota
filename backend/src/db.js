@@ -237,12 +237,15 @@ async function getEquiposConUltimaUbicacion(config) {
 
   return result.recordset.map((row) => {
     const bssids = row.bssids ? JSON.parse(row.bssids) : [];
-    const areaDetectada = bssids.map((b) => bssidToArea.get(b.toLowerCase())).find(Boolean) || null;
+    const match = bssids.map((b) => bssidToArea.get(b.toLowerCase())).find(Boolean) || null;
+    const areaDetectada = match ? match.area : null;
 
     return {
       ...row,
       bssids,
       areaDetectada,
+      latitud: match ? match.latitud : null,
+      longitud: match ? match.longitud : null,
       // Solo alerta si hay algo con que comparar (area detectada por WiFi
       // distinta a la asignada) y el equipo no esta usando datos moviles --
       // en datos moviles no hay ningun WiFi de la faena que comparar, no
@@ -255,17 +258,21 @@ async function getEquiposConUltimaUbicacion(config) {
 }
 
 /**
- * Mapa BSSID (minuscula) -> nombre de Area. Usa STContains (poligono real del
+ * Mapa BSSID (minuscula) -> { area, latitud, longitud } de la fila de
+ * BssidsArea que matchea ese BSSID. area usa STContains (poligono real del
  * Area contra la coordenada del router) cuando ambos datos ya se cargaron;
  * mientras no haya coordenadas reales, cae al mismo Area asignada a mano en
- * BssidsArea. No depende de PostGIS: geography es nativo de SQL Server.
+ * BssidsArea. latitud/longitud son siempre las del router (BssidsArea), no
+ * las del poligono. No depende de PostGIS: geography es nativo de SQL Server.
  */
 async function getBssidAreaMap(config) {
   const pool = await getPool(config);
   const result = await pool.request().query(`
     SELECT
       ba.Bssid AS bssid,
-      COALESCE(porPoligono.Nombre, aAsignada.Nombre) AS area
+      COALESCE(porPoligono.Nombre, aAsignada.Nombre) AS area,
+      ba.Latitud AS latitud,
+      ba.Longitud AS longitud
     FROM dbo.BssidsArea ba
     JOIN dbo.Areas aAsignada ON aAsignada.Id = ba.AreaId
     OUTER APPLY (
@@ -279,7 +286,12 @@ async function getBssidAreaMap(config) {
     ) porPoligono
   `);
 
-  return new Map(result.recordset.map((row) => [row.bssid.toLowerCase(), row.area]));
+  return new Map(
+    result.recordset.map((row) => [
+      row.bssid.toLowerCase(),
+      { area: row.area, latitud: row.latitud, longitud: row.longitud },
+    ])
+  );
 }
 
 module.exports = { insertRecords, upsertEquipoRegistro, getEquiposConUltimaUbicacion };
