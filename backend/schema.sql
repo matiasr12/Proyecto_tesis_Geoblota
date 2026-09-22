@@ -62,30 +62,33 @@ END;
 
 -- Migrar DeviceRecords de ComputerName (texto) a EquipoId (FK), solo si
 -- todavia no se hizo (es decir, si la columna ComputerName sigue existiendo).
+-- Todo el cuerpo va como texto dinamico (EXEC) porque SQL Server valida los
+-- nombres de columna del batch entero al compilar, incluso dentro de un IF
+-- que nunca se ejecuta -- sin esto, tira "Invalid column name 'ComputerName'"
+-- una vez que la migracion ya se hizo (la columna ya no existe).
 IF COL_LENGTH('dbo.DeviceRecords', 'ComputerName') IS NOT NULL
 BEGIN
-    ALTER TABLE dbo.DeviceRecords ADD EquipoId INT NULL;
+    EXEC(N'
+        ALTER TABLE dbo.DeviceRecords ADD EquipoId INT NULL;
 
-    -- Un Equipo por cada ComputerName distinto que ya tenga registros.
-    -- CodigoActivo queda igual al ComputerName por ahora (placeholder):
-    -- actualizalo despues con el codigo de activo real de cada equipo.
-    INSERT INTO dbo.Equipos (CodigoActivo, ComputerName)
-    SELECT DISTINCT ComputerName, ComputerName
-    FROM dbo.DeviceRecords dr
-    WHERE NOT EXISTS (
-        SELECT 1 FROM dbo.Equipos e WHERE e.ComputerName = dr.ComputerName
-    );
+        INSERT INTO dbo.Equipos (CodigoActivo, ComputerName)
+        SELECT DISTINCT ComputerName, ComputerName
+        FROM dbo.DeviceRecords dr
+        WHERE NOT EXISTS (
+            SELECT 1 FROM dbo.Equipos e WHERE e.ComputerName = dr.ComputerName
+        );
 
-    UPDATE dr
-    SET dr.EquipoId = e.Id
-    FROM dbo.DeviceRecords dr
-    JOIN dbo.Equipos e ON e.ComputerName = dr.ComputerName;
+        UPDATE dr
+        SET dr.EquipoId = e.Id
+        FROM dbo.DeviceRecords dr
+        JOIN dbo.Equipos e ON e.ComputerName = dr.ComputerName;
 
-    ALTER TABLE dbo.DeviceRecords ALTER COLUMN EquipoId INT NOT NULL;
-    ALTER TABLE dbo.DeviceRecords ADD CONSTRAINT FK_DeviceRecords_Equipos
-        FOREIGN KEY (EquipoId) REFERENCES dbo.Equipos(Id);
+        ALTER TABLE dbo.DeviceRecords ALTER COLUMN EquipoId INT NOT NULL;
+        ALTER TABLE dbo.DeviceRecords ADD CONSTRAINT FK_DeviceRecords_Equipos
+            FOREIGN KEY (EquipoId) REFERENCES dbo.Equipos(Id);
 
-    ALTER TABLE dbo.DeviceRecords DROP COLUMN ComputerName;
+        ALTER TABLE dbo.DeviceRecords DROP COLUMN ComputerName;
+    ');
 END;
 
 -- ============================================================================
