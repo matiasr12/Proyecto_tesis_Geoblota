@@ -13,6 +13,9 @@ function isValidRecord(record) {
     Array.isArray(record.bssids) &&
     record.bssids.every((b) => typeof b === 'string') &&
     (record.ip === null || typeof record.ip === 'string') &&
+    // Opcional: daemons ya desplegados que todavia no lo mandan siguen
+    // funcionando igual.
+    (record.connectionType === undefined || typeof record.connectionType === 'string') &&
     typeof record.timestamp === 'string' &&
     !Number.isNaN(Date.parse(record.timestamp))
   );

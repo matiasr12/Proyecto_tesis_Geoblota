@@ -73,10 +73,11 @@ async function insertRecords(config, records) {
       request.input('equipoId', sql.Int, equipoId);
       request.input('bssids', sql.NVarChar, JSON.stringify(record.bssids));
       request.input('ip', sql.NVarChar, record.ip);
+      request.input('connectionType', sql.NVarChar, record.connectionType || null);
       request.input('recordTimestamp', sql.DateTime2, new Date(record.timestamp));
       await request.query(`
-        INSERT INTO dbo.DeviceRecords (EquipoId, Bssids, Ip, RecordTimestamp, ReceivedAt)
-        VALUES (@equipoId, @bssids, @ip, @recordTimestamp, SYSUTCDATETIME())
+        INSERT INTO dbo.DeviceRecords (EquipoId, Bssids, Ip, ConnectionType, RecordTimestamp, ReceivedAt)
+        VALUES (@equipoId, @bssids, @ip, @connectionType, @recordTimestamp, SYSUTCDATETIME())
       `);
     }
     await transaction.commit();
@@ -217,11 +218,12 @@ async function getEquiposConUltimaUbicacion(config) {
       f.Nombre AS faena,
       dr.Bssids AS bssids,
       dr.Ip AS ip,
+      dr.ConnectionType AS connectionType,
       dr.RecordTimestamp AS recordTimestamp,
       dr.ReceivedAt AS receivedAt
     FROM dbo.Equipos e
     OUTER APPLY (
-      SELECT TOP 1 dr2.Bssids, dr2.Ip, dr2.RecordTimestamp, dr2.ReceivedAt
+      SELECT TOP 1 dr2.Bssids, dr2.Ip, dr2.ConnectionType, dr2.RecordTimestamp, dr2.ReceivedAt
       FROM dbo.DeviceRecords dr2
       WHERE dr2.EquipoId = e.Id
       ORDER BY dr2.RecordTimestamp DESC
@@ -241,9 +243,13 @@ async function getEquiposConUltimaUbicacion(config) {
       ...row,
       bssids,
       areaDetectada,
-      // Solo alerta si hay algo con que comparar: un equipo detectado en una
-      // zona con WiFi conocido, pero asignado a otra area distinta.
-      alerta: Boolean(areaDetectada && row.area && areaDetectada !== row.area),
+      // Solo alerta si hay algo con que comparar (area detectada por WiFi
+      // distinta a la asignada) y el equipo no esta usando datos moviles --
+      // en datos moviles no hay ningun WiFi de la faena que comparar, no
+      // significa que "salio del area".
+      alerta: Boolean(
+        areaDetectada && row.area && areaDetectada !== row.area && row.connectionType !== 'movil'
+      ),
     };
   });
 }

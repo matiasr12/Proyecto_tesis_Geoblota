@@ -123,3 +123,11 @@ BEGIN
     ALTER TABLE dbo.BssidsArea ADD Latitud DECIMAL(9,6) NULL;
     ALTER TABLE dbo.BssidsArea ADD Longitud DECIMAL(9,6) NULL;
 END;
+
+-- Tipo de conexion activa (wifi/ethernet/movil) al momento del registro.
+-- Sirve para no marcar como "fuera del area" a un equipo que en realidad
+-- esta usando datos moviles, no el WiFi de la faena.
+IF COL_LENGTH('dbo.DeviceRecords', 'ConnectionType') IS NULL
+BEGIN
+    ALTER TABLE dbo.DeviceRecords ADD ConnectionType NVARCHAR(20) NULL;
+END;
