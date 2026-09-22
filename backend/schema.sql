@@ -104,3 +104,22 @@ BEGIN
         AreaId INT NOT NULL REFERENCES dbo.Areas(Id)
     );
 END;
+
+-- ============================================================================
+-- GIS real (opcional): limite del Area como poligono, y ubicacion aproximada
+-- de cada router. Mientras no se carguen datos reales (relevamiento GPS de
+-- la faena), quedan en NULL y el sistema sigue funcionando solo con el
+-- matcheo por nombre de BSSID de arriba -- esto se activa solo cuando se
+-- completen coordenadas reales.
+-- ============================================================================
+
+IF COL_LENGTH('dbo.Areas', 'Poligono') IS NULL
+BEGIN
+    ALTER TABLE dbo.Areas ADD Poligono geography NULL;
+END;
+
+IF COL_LENGTH('dbo.BssidsArea', 'Latitud') IS NULL
+BEGIN
+    ALTER TABLE dbo.BssidsArea ADD Latitud DECIMAL(9,6) NULL;
+    ALTER TABLE dbo.BssidsArea ADD Longitud DECIMAL(9,6) NULL;
+END;

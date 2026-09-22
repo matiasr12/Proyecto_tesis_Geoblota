@@ -249,17 +249,28 @@ async function getEquiposConUltimaUbicacion(config) {
 }
 
 /**
- * Mapa BSSID (minuscula) -> nombre de Area, segun la tabla BssidsArea. No usa
- * coordenadas GPS (no relevadas todavia): la ubicacion de un equipo se infiere
- * por que router ve, no por lat/long. Alcanza para el geofencing basico
- * (¿esta en una zona distinta a la asignada?) sin depender de PostGIS.
+ * Mapa BSSID (minuscula) -> nombre de Area. Usa STContains (poligono real del
+ * Area contra la coordenada del router) cuando ambos datos ya se cargaron;
+ * mientras no haya coordenadas reales, cae al mismo Area asignada a mano en
+ * BssidsArea. No depende de PostGIS: geography es nativo de SQL Server.
  */
 async function getBssidAreaMap(config) {
   const pool = await getPool(config);
   const result = await pool.request().query(`
-    SELECT ba.Bssid AS bssid, a.Nombre AS area
+    SELECT
+      ba.Bssid AS bssid,
+      COALESCE(porPoligono.Nombre, aAsignada.Nombre) AS area
     FROM dbo.BssidsArea ba
-    JOIN dbo.Areas a ON a.Id = ba.AreaId
+    JOIN dbo.Areas aAsignada ON aAsignada.Id = ba.AreaId
+    OUTER APPLY (
+      SELECT TOP 1 a2.Nombre
+      FROM dbo.Areas a2
+      WHERE a2.Poligono IS NOT NULL
+        AND ba.Latitud IS NOT NULL
+        AND ba.Longitud IS NOT NULL
+        -- geography::Point espera (latitud, longitud, SRID) en ese orden.
+        AND a2.Poligono.STContains(geography::Point(ba.Latitud, ba.Longitud, 4326)) = 1
+    ) porPoligono
   `);
 
   return new Map(result.recordset.map((row) => [row.bssid.toLowerCase(), row.area]));
