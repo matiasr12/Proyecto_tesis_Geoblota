@@ -16,6 +16,11 @@ function isValidRecord(record) {
     // Opcional: daemons ya desplegados que todavia no lo mandan siguen
     // funcionando igual.
     (record.connectionType === undefined || typeof record.connectionType === 'string') &&
+    // Opcional: solo presente si el daemon tiene API key de geolocalizacion
+    // configurada y encontro match para el WiFi visible.
+    (record.latitud === undefined || record.latitud === null || typeof record.latitud === 'number') &&
+    (record.longitud === undefined || record.longitud === null || typeof record.longitud === 'number') &&
+    (record.precisionMetros === undefined || record.precisionMetros === null || typeof record.precisionMetros === 'number') &&
     typeof record.timestamp === 'string' &&
     !Number.isNaN(Date.parse(record.timestamp))
   );

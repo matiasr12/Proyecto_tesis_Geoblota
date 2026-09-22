@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { app } = require('electron');
-const { SERVER_URL, JWT_TOKEN } = require('./secrets');
+const { SERVER_URL, JWT_TOKEN, GOOGLE_GEOLOCATION_API_KEY } = require('./secrets');
 
 const RECORDS_PATH = '/api/device-records';
 const EQUIPO_REGISTRO_PATH = '/api/equipos/registro';
@@ -37,6 +37,7 @@ function loadConfig() {
     collectIntervalMs: COLLECT_INTERVAL_MS,
     dataDir,
     dbEncryptionKey: getOrCreateEncryptionKey(dataDir),
+    googleGeolocationApiKey: GOOGLE_GEOLOCATION_API_KEY || null,
   };
 }
 

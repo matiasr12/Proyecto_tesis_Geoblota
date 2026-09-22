@@ -38,7 +38,7 @@ function createScheduler({ config, store, onStatus, logger = console }) {
 
     let snapshot;
     try {
-      snapshot = await collectSnapshot();
+      snapshot = await collectSnapshot(config);
     } catch (error) {
       logger.error('Fallo al recolectar el snapshot:', error);
       onStatus({ state: 'error', pendingCount: store.count(), lastError: error.message });

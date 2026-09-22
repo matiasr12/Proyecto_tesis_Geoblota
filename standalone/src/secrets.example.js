@@ -8,4 +8,7 @@
 module.exports = {
   SERVER_URL: 'https://reemplazar.azurewebsites.net',
   JWT_TOKEN: 'reemplazar-con-el-mismo-JWT_SECRET-del-backend',
+  // Opcional: API key de Google Cloud con Geolocation API habilitada. Si se
+  // deja null, el instalador sigue funcionando pero lat/long van siempre null.
+  GOOGLE_GEOLOCATION_API_KEY: null,
 };

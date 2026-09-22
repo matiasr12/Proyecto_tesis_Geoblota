@@ -74,10 +74,15 @@ async function insertRecords(config, records) {
       request.input('bssids', sql.NVarChar, JSON.stringify(record.bssids));
       request.input('ip', sql.NVarChar, record.ip);
       request.input('connectionType', sql.NVarChar, record.connectionType || null);
+      request.input('latitud', sql.Decimal(9, 6), record.latitud ?? null);
+      request.input('longitud', sql.Decimal(9, 6), record.longitud ?? null);
+      request.input('precisionMetros', sql.Decimal(10, 2), record.precisionMetros ?? null);
       request.input('recordTimestamp', sql.DateTime2, new Date(record.timestamp));
       await request.query(`
-        INSERT INTO dbo.DeviceRecords (EquipoId, Bssids, Ip, ConnectionType, RecordTimestamp, ReceivedAt)
-        VALUES (@equipoId, @bssids, @ip, @connectionType, @recordTimestamp, SYSUTCDATETIME())
+        INSERT INTO dbo.DeviceRecords
+          (EquipoId, Bssids, Ip, ConnectionType, Latitud, Longitud, PrecisionMetros, RecordTimestamp, ReceivedAt)
+        VALUES
+          (@equipoId, @bssids, @ip, @connectionType, @latitud, @longitud, @precisionMetros, @recordTimestamp, SYSUTCDATETIME())
       `);
     }
     await transaction.commit();
@@ -219,11 +224,16 @@ async function getEquiposConUltimaUbicacion(config) {
       dr.Bssids AS bssids,
       dr.Ip AS ip,
       dr.ConnectionType AS connectionType,
+      dr.Latitud AS latitud,
+      dr.Longitud AS longitud,
+      dr.PrecisionMetros AS precisionMetros,
       dr.RecordTimestamp AS recordTimestamp,
       dr.ReceivedAt AS receivedAt
     FROM dbo.Equipos e
     OUTER APPLY (
-      SELECT TOP 1 dr2.Bssids, dr2.Ip, dr2.ConnectionType, dr2.RecordTimestamp, dr2.ReceivedAt
+      SELECT TOP 1
+        dr2.Bssids, dr2.Ip, dr2.ConnectionType, dr2.Latitud, dr2.Longitud, dr2.PrecisionMetros,
+        dr2.RecordTimestamp, dr2.ReceivedAt
       FROM dbo.DeviceRecords dr2
       WHERE dr2.EquipoId = e.Id
       ORDER BY dr2.RecordTimestamp DESC
@@ -244,8 +254,12 @@ async function getEquiposConUltimaUbicacion(config) {
       ...row,
       bssids,
       areaDetectada,
-      latitud: match ? match.latitud : null,
-      longitud: match ? match.longitud : null,
+      // Preferir la ubicacion que el propio daemon resolvio via Geolocation
+      // API (mas precisa, real, cualquier lugar) sobre la inferida por
+      // BssidsArea (aproximada, solo sirve para los BSSID cargados a mano) --
+      // esta ultima queda como fallback para daemons viejos sin API key.
+      latitud: row.latitud ?? (match ? match.latitud : null),
+      longitud: row.longitud ?? (match ? match.longitud : null),
       // Solo alerta si hay algo con que comparar (area detectada por WiFi
       // distinta a la asignada) y el equipo no esta usando datos moviles --
       // en datos moviles no hay ningun WiFi de la faena que comparar, no

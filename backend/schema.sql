@@ -134,3 +134,14 @@ IF COL_LENGTH('dbo.DeviceRecords', 'ConnectionType') IS NULL
 BEGIN
     ALTER TABLE dbo.DeviceRecords ADD ConnectionType NVARCHAR(20) NULL;
 END;
+
+-- Ubicacion que el propio daemon resolvio via Geolocation API (Google) a
+-- partir del WiFi visible en el momento del registro. Null si el daemon no
+-- tiene API key configurada o la consulta no encontro match -- en ese caso
+-- el backend sigue cayendo al matcheo aproximado por BssidsArea.
+IF COL_LENGTH('dbo.DeviceRecords', 'Latitud') IS NULL
+BEGIN
+    ALTER TABLE dbo.DeviceRecords ADD Latitud DECIMAL(9,6) NULL;
+    ALTER TABLE dbo.DeviceRecords ADD Longitud DECIMAL(9,6) NULL;
+    ALTER TABLE dbo.DeviceRecords ADD PrecisionMetros DECIMAL(10,2) NULL;
+END;

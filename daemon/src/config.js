@@ -34,6 +34,9 @@ function getDefaultDataDir() {
  *  - EQUIPO_REGISTRO_PATH (opcional): path del endpoint de registro de equipo, default /api/equipos/registro
  *  - COLLECT_INTERVAL_MS (opcional): intervalo del loop, default 15 minutos
  *  - DAEMON_DATA_DIR (opcional): carpeta para el SQLite local y el archivo de estado
+ *  - GOOGLE_GEOLOCATION_API_KEY (opcional): si esta seteada, cada snapshot intenta
+ *    resolver lat/long via Google Geolocation API a partir del WiFi visible; si no
+ *    esta seteada, lat/long van null (igual que un daemon viejo que no la manda)
  */
 function loadConfig() {
   const serverUrl = required('SERVER_URL').replace(/\/+$/, '');
@@ -52,6 +55,7 @@ function loadConfig() {
     equipoRegistroPath: process.env.EQUIPO_REGISTRO_PATH || '/api/equipos/registro',
     collectIntervalMs: Number(process.env.COLLECT_INTERVAL_MS) || 15 * 60 * 1000,
     dataDir: process.env.DAEMON_DATA_DIR || getDefaultDataDir(),
+    googleGeolocationApiKey: process.env.GOOGLE_GEOLOCATION_API_KEY || null,
   };
 }
 
