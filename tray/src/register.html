@@ -2,80 +2,176 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8" />
-<title>Registrar equipo</title>
+<title>Registrar equipo · GeoFlota</title>
 <style>
-  body {
-    font-family: -apple-system, Segoe UI, Arial, sans-serif;
-    margin: 0;
-    padding: 20px;
-    background: #f4f5f7;
-    color: #1a1a1a;
+  * {
+    box-sizing: border-box;
   }
-  h1 {
-    font-size: 16px;
-    margin: 0 0 16px;
+  body {
+    font-family: 'Segoe UI', -apple-system, Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(160deg, #eef1f6 0%, #dde4ee 100%);
+    color: #1f2430;
+  }
+  .card {
+    width: 420px;
+    max-width: calc(100% - 32px);
+    background: #ffffff;
+    border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(20, 30, 60, 0.12);
+    overflow: hidden;
+    margin: 16px;
+  }
+  .card-header {
+    background: linear-gradient(135deg, #1b3a6b 0%, #2f6fed 100%);
+    color: #fff;
+    padding: 20px 24px;
+  }
+  .card-header .brand {
+    font-size: 12px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    opacity: 0.8;
+    margin-bottom: 4px;
+  }
+  .card-header h1 {
+    font-size: 18px;
+    margin: 0;
+    font-weight: 600;
+  }
+  .card-header p {
+    font-size: 12px;
+    margin: 6px 0 0;
+    opacity: 0.85;
+  }
+  form {
+    padding: 20px 24px 8px;
+  }
+  .section-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: #6b7686;
+    margin: 18px 0 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #e7eaf0;
+  }
+  .section-title:first-child {
+    margin-top: 0;
+  }
+  .field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
   }
   label {
     display: block;
     font-size: 12px;
-    margin: 10px 0 4px;
-    color: #444;
+    font-weight: 500;
+    margin: 10px 0 5px;
+    color: #4a5365;
   }
   input {
     width: 100%;
-    box-sizing: border-box;
-    padding: 6px 8px;
+    padding: 9px 10px;
     font-size: 13px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
+    border: 1px solid #d4d9e2;
+    border-radius: 6px;
+    background: #fafbfc;
+    color: #1f2430;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  input:focus {
+    outline: none;
+    border-color: #2f6fed;
+    box-shadow: 0 0 0 3px rgba(47, 111, 237, 0.15);
+    background: #fff;
   }
   button {
-    margin-top: 18px;
+    margin: 20px 0 20px;
     width: 100%;
-    padding: 8px;
+    padding: 11px;
     font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
     border: none;
-    border-radius: 4px;
+    border-radius: 6px;
     background: #2f6fed;
     color: white;
     cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  button:hover:not(:disabled) {
+    background: #2558c4;
   }
   button:disabled {
-    background: #9db6ee;
+    background: #adc1ee;
     cursor: default;
   }
   #mensaje {
-    margin-top: 10px;
+    margin: 0 24px 16px;
+    padding: 10px 12px;
     font-size: 12px;
+    border-radius: 6px;
+    background: #fdecec;
     color: #b00020;
+    display: none;
+  }
+  #mensaje.visible {
+    display: block;
   }
 </style>
 </head>
 <body>
-  <h1>Registrar equipo</h1>
+  <div class="card">
+    <div class="card-header">
+      <div class="brand">GeoFlota</div>
+      <h1>Registrar equipo</h1>
+      <p>Estos datos se envían una sola vez para vincular este equipo con su responsable.</p>
+    </div>
 
-  <form id="form">
-    <label for="faena">Faena</label>
-    <input id="faena" required />
+    <form id="form">
+      <div class="section-title">Ubicación operacional</div>
+      <div class="field-row">
+        <div>
+          <label for="faena">Faena</label>
+          <input id="faena" required />
+        </div>
+        <div>
+          <label for="area">Área</label>
+          <input id="area" required />
+        </div>
+      </div>
 
-    <label for="area">Área</label>
-    <input id="area" required />
+      <div class="section-title">Persona responsable</div>
+      <label for="rut">Rut</label>
+      <input id="rut" required />
 
-    <label for="rut">Rut de la persona responsable</label>
-    <input id="rut" required />
+      <div class="field-row">
+        <div>
+          <label for="nombre">Nombre</label>
+          <input id="nombre" required />
+        </div>
+        <div>
+          <label for="apellido">Apellido</label>
+          <input id="apellido" required />
+        </div>
+      </div>
 
-    <label for="nombre">Nombre</label>
-    <input id="nombre" required />
+      <div class="section-title">Equipo</div>
+      <label for="codigoActivo">Código de activo</label>
+      <input id="codigoActivo" required />
 
-    <label for="apellido">Apellido</label>
-    <input id="apellido" required />
-
-    <label for="codigoActivo">Código de activo</label>
-    <input id="codigoActivo" required />
-
-    <button type="submit" id="guardar">Guardar</button>
-  </form>
-  <div id="mensaje"></div>
+      <button type="submit" id="guardar">Guardar</button>
+    </form>
+    <div id="mensaje"></div>
+  </div>
 
   <script>
     const form = document.getElementById('form');
@@ -93,6 +189,7 @@
       event.preventDefault();
       boton.disabled = true;
       mensaje.textContent = '';
+      mensaje.classList.remove('visible');
 
       const datos = {
         faena: document.getElementById('faena').value.trim(),
@@ -108,6 +205,7 @@
         window.close();
       } catch (error) {
         mensaje.textContent = 'No se pudo guardar: ' + error.message;
+        mensaje.classList.add('visible');
         boton.disabled = false;
       }
     });
