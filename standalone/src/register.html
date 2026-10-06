@@ -194,23 +194,24 @@
       if (valores.includes(elegido)) select.value = elegido;
     }
 
-    // Sin faena elegida muestra todas las areas; con faena, solo las suyas.
+    // Siempre muestra todas las areas, sin importar la faena elegida.
     function actualizarAreas() {
-      const faena = faenaSelect.value;
-      const areas = areasDisponibles.filter((a) => !faena || a.faena === faena).map((a) => a.area);
+      const areas = areasDisponibles.map((a) => a.area);
       // El area ya registrada se mantiene aunque el backend no responda.
-      if (guardado && guardado.area && (!faena || guardado.faena === faena)) areas.push(guardado.area);
+      if (guardado && guardado.area) areas.push(guardado.area);
       llenarSelect(areaSelect, 'Selecciona un área', areas);
     }
 
-    // Al elegir un area sin faena, se completa la faena a la que pertenece.
+    // Al elegir un area que no pertenece a la faena elegida (o sin faena), se
+    // ajusta la faena a la del area: el backend busca el area por nombre
+    // dentro de la faena, y si no la encuentra crearia un area duplicada.
     function completarFaena() {
-      if (faenaSelect.value || !areaSelect.value) return;
-      const match = areasDisponibles.find((a) => a.area === areaSelect.value);
-      if (match) {
-        faenaSelect.value = match.faena;
-        actualizarAreas();
-      }
+      const area = areaSelect.value;
+      if (!area) return;
+      const deLaFaena = areasDisponibles.some((a) => a.area === area && a.faena === faenaSelect.value);
+      if (deLaFaena) return;
+      const match = areasDisponibles.find((a) => a.area === area);
+      if (match) faenaSelect.value = match.faena;
     }
 
     function actualizarFaenas() {
@@ -250,7 +251,12 @@
       return cargaEnCurso;
     }
 
-    faenaSelect.addEventListener('change', actualizarAreas);
+    // Si el area elegida no es de la nueva faena, se deja sin elegir.
+    faenaSelect.addEventListener('change', () => {
+      const area = areaSelect.value;
+      const sigueValida = areasDisponibles.some((a) => a.area === area && a.faena === faenaSelect.value);
+      if (area && !sigueValida) areaSelect.value = '';
+    });
     areaSelect.addEventListener('change', completarFaena);
     window.addEventListener('focus', cargarAreas);
 
