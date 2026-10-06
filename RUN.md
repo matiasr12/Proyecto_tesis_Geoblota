@@ -70,7 +70,21 @@ de autostart manuales) y abre la ventana de registro de equipo si es la primera 
 La URL del backend y el token van fijos en `standalone/src/secrets.js` (nunca se
 commitea, el repo es publico) y quedan compilados dentro del `.exe` — quien instala no
 completa nada. Si cambia el backend o el `JWT_SECRET`, hay que actualizar
-`secrets.js` y volver a generar el instalador.
+`secrets.js` y volver a generar el instalador. `GOOGLE_GEOLOCATION_API_KEY` es
+opcional: la ubicacion se pide primero al servicio de ubicacion de Windows y la API de
+Google solo se usa como respaldo si hay key.
+
+En la ventana de registro, Faena y Area son menus desplegables que se llenan con
+`GET /api/areas` cada vez que se abre la ventana (y al volver a ella), asi que un area
+nueva cargada en la base aparece sin reinstalar. Las dos listas son independientes:
+el desplegable de Area muestra siempre todas las areas. Sin conexion al backend los
+menus quedan vacios y la ventana muestra un aviso. Para que la ventana abra rapido, la
+primera recoleccion (PowerShell/netsh) arranca recien cuando la ventana ya esta en
+pantalla.
+
+Al desinstalar, el desinstalador corre el propio ejecutable con `uninstall-cleanup`
+para quitar la entrada de inicio de Windows, y borra los datos locales (cola cifrada,
+`equipo-info.json`, clave). Ver `standalone/build/installer.nsh`.
 
 ## 2. Empaquetar el tray como ejecutable
 
@@ -133,7 +147,29 @@ El codigo vive en `backend/`. Recibe `POST /api/device-records` con
 `Authorization: Bearer <JWT_TOKEN>` y guarda los registros en Azure SQL Database.
 Tambien recibe `POST /api/equipos/registro` (mismo token) con los datos de
 Faena/Area/Persona/Equipo que manda el tray una sola vez, y arma/actualiza esas
-tablas relacionadas (`Faenas`, `Areas`, `Personal`, `Equipos`).
+tablas relacionadas (`Faenas`, `Areas`, `Personal`, `Equipos`). El area se busca por
+nombre en cualquier faena (solo se crea si no existe en ninguna), asi no se duplican
+areas cuando la persona elige una faena y un area de otra faena.
+
+Rutas de lectura (mismo token):
+
+- `GET /api/equipos`: un renglon por equipo con su persona/area/faena, ultima
+  ubicacion y `alerta` si el area detectada por WiFi es distinta a la asignada (no
+  alerta si la conexion es datos moviles).
+- `GET /api/areas`: lista `{ faena, area }` para los desplegables del registro.
+
+### Areas y poligonos (Google Earth)
+
+`dbo.Areas.Poligono` (tipo `geography`) guarda el limite de cada area, y
+`dbo.BssidsArea` asocia cada router (BSSID) a un area, con su latitud/longitud
+opcional. Para cargar un poligono dibujado en Google Earth: clic derecho sobre el
+poligono > "Guardar lugar como..." > KML, copiar el contenido de `<coordinates>` y
+armar el `UPDATE dbo.Areas SET Poligono = geography::STGeomFromText('POLYGON((lon lat,
+...))', 4326).MakeValid() WHERE Nombre = N'...'`. Ojo: en WKT va longitud primero, el
+primer punto se repite al final, y el contorno debe ir en sentido antihorario (si
+`Poligono.STArea()` da un numero del tamaño de la Tierra, esta invertido: usar
+`.ReorientObject()`). La pestaña "Ver" de Google Earth es la posicion de la camara, no
+el perimetro.
 
 ```bash
 cd backend
