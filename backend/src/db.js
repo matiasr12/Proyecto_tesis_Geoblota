@@ -104,11 +104,21 @@ async function getOrCreateFaenaId(transaction, nombre) {
   return created.recordset[0].Id;
 }
 
+/**
+ * El formulario deja elegir faena y area por separado, asi que el area se
+ * busca por nombre en cualquier faena (si no, se crearia un duplicado sin
+ * poligono). Solo si no existe en ninguna se crea dentro de la faena elegida.
+ * Si hubiera dos areas con el mismo nombre, prefiere la de esa faena.
+ */
 async function getOrCreateAreaId(transaction, nombre, faenaId) {
   const select = new sql.Request(transaction);
   select.input('nombre', sql.NVarChar, nombre);
   select.input('faenaId', sql.Int, faenaId);
-  const existing = await select.query('SELECT Id FROM dbo.Areas WHERE Nombre = @nombre AND FaenaId = @faenaId');
+  const existing = await select.query(`
+    SELECT TOP 1 Id FROM dbo.Areas
+    WHERE Nombre = @nombre
+    ORDER BY CASE WHEN FaenaId = @faenaId THEN 0 ELSE 1 END, Id
+  `);
   if (existing.recordset.length > 0) return existing.recordset[0].Id;
 
   const insert = new sql.Request(transaction);

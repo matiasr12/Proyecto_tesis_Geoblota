@@ -201,19 +201,6 @@
       if (guardado && guardado.area) areas.push(guardado.area);
       llenarSelect(areaSelect, 'Selecciona un área', areas);
     }
-
-    // Al elegir un area que no pertenece a la faena elegida (o sin faena), se
-    // ajusta la faena a la del area: el backend busca el area por nombre
-    // dentro de la faena, y si no la encuentra crearia un area duplicada.
-    function completarFaena() {
-      const area = areaSelect.value;
-      if (!area) return;
-      const deLaFaena = areasDisponibles.some((a) => a.area === area && a.faena === faenaSelect.value);
-      if (deLaFaena) return;
-      const match = areasDisponibles.find((a) => a.area === area);
-      if (match) faenaSelect.value = match.faena;
-    }
-
     function actualizarFaenas() {
       const faenas = areasDisponibles.map((a) => a.faena);
       if (guardado && guardado.faena) faenas.push(guardado.faena);
@@ -251,13 +238,6 @@
       return cargaEnCurso;
     }
 
-    // Si el area elegida no es de la nueva faena, se deja sin elegir.
-    faenaSelect.addEventListener('change', () => {
-      const area = areaSelect.value;
-      const sigueValida = areasDisponibles.some((a) => a.area === area && a.faena === faenaSelect.value);
-      if (area && !sigueValida) areaSelect.value = '';
-    });
-    areaSelect.addEventListener('change', completarFaena);
     window.addEventListener('focus', cargarAreas);
 
     window.equipoAPI.cargar().then(async (datos) => {
