@@ -92,12 +92,16 @@ function openRegisterWindow() {
     height: 660,
     resizable: false,
     autoHideMenuBar: true,
+    // Se muestra recien cuando ya esta pintada, en vez de un recuadro en
+    // blanco mientras carga.
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, 'registerPreload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
+  registerWindow.once('ready-to-show', () => registerWindow.show());
   registerWindow.loadFile(path.join(__dirname, 'register.html'));
   registerWindow.on('closed', () => {
     registerWindow = null;
@@ -106,7 +110,7 @@ function openRegisterWindow() {
 
 ipcMain.handle('cargar-equipo-info', () => readEquipoInfo());
 
-// Sin conexion devuelve [] y el formulario sigue aceptando texto libre.
+// Sin conexion devuelve [] y el formulario muestra el aviso.
 ipcMain.handle('listar-areas', async () => {
   try {
     return await fetchAreas(config);
@@ -169,10 +173,14 @@ app.whenReady().then(() => {
       refreshMenu();
     },
   });
-  scheduler.start();
-
+  // La primera recoleccion lanza varios PowerShell/netsh a la vez, que
+  // compiten con la ventana de registro y la hacen tardar en aparecer. Si hay
+  // que mostrarla, la recoleccion arranca recien cuando ya esta en pantalla.
   if (!readEquipoInfo()) {
     openRegisterWindow();
+    registerWindow.once('ready-to-show', () => scheduler.start());
+  } else {
+    scheduler.start();
   }
 });
 

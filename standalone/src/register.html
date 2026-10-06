@@ -216,14 +216,27 @@
 
     // Se pide al backend cada vez que se abre (y al volver a la ventana),
     // asi un area recien creada aparece sin reinstalar nada.
-    async function cargarAreas() {
-      areasDisponibles = await window.equipoAPI.listarAreas();
-      actualizarFaenas();
-      mostrarMensaje(
-        areasDisponibles.length === 0
-          ? 'No se pudieron cargar las áreas disponibles. Revisa la conexión a internet y vuelve a abrir esta ventana.'
-          : ''
-      );
+    // Si ya hay una consulta en curso (p. ej. el focus que llega al abrir la
+    // ventana), se reutiliza en vez de lanzar otra.
+    let cargaEnCurso = null;
+    function cargarAreas() {
+      if (!cargaEnCurso) {
+        cargaEnCurso = window.equipoAPI
+          .listarAreas()
+          .then((areas) => {
+            areasDisponibles = areas;
+            actualizarFaenas();
+            mostrarMensaje(
+              areasDisponibles.length === 0
+                ? 'No se pudieron cargar las áreas disponibles. Revisa la conexión a internet y vuelve a abrir esta ventana.'
+                : ''
+            );
+          })
+          .finally(() => {
+            cargaEnCurso = null;
+          });
+      }
+      return cargaEnCurso;
     }
 
     faenaSelect.addEventListener('change', actualizarAreas);
