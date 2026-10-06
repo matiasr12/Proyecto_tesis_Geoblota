@@ -21,7 +21,8 @@
       "package.json"
     ],
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "build"
     },
     "win": {
       "target": "nsis",
@@ -32,7 +33,9 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": true,
+      "include": "C:\\Users\\matias\\Desktop\\Tesis\\standalone\\build\\installer.nsh"
     }
   }
 }

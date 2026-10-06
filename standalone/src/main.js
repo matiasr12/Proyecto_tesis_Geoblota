@@ -7,7 +7,7 @@ const { version } = require('../package.json');
 const { loadConfig } = require('./config');
 const { PendingRecordsStore } = require('./storage/db');
 const { createScheduler } = require('./scheduler');
-const { registerEquipo } = require('./api/client');
+const { registerEquipo, fetchAreas } = require('./api/client');
 const { markEquipoInfoSent } = require('./equipoRegistration');
 const { getComputerName } = require('./collectors');
 
@@ -88,8 +88,8 @@ function openRegisterWindow() {
   }
 
   registerWindow = new BrowserWindow({
-    width: 380,
-    height: 480,
+    width: 470,
+    height: 660,
     resizable: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -105,6 +105,15 @@ function openRegisterWindow() {
 }
 
 ipcMain.handle('cargar-equipo-info', () => readEquipoInfo());
+
+// Sin conexion devuelve [] y el formulario sigue aceptando texto libre.
+ipcMain.handle('listar-areas', async () => {
+  try {
+    return await fetchAreas(config);
+  } catch {
+    return [];
+  }
+});
 
 ipcMain.handle('guardar-equipo-info', async (event, datos) => {
   fs.mkdirSync(config.dataDir, { recursive: true });
@@ -126,6 +135,19 @@ ipcMain.handle('guardar-equipo-info', async (event, datos) => {
 });
 
 app.whenReady().then(() => {
+  // El desinstalador llama al propio ejecutable con este argumento antes de
+  // borrar los archivos, para que Electron deshaga exactamente el registro
+  // de autoarranque que el mismo creo (sin tener que adivinar el nombre de
+  // la entrada en el registro de Windows desde el script de NSIS). Sin
+  // guiones a proposito: Electron/Chromium interceptan cualquier "--algo"
+  // como si fuera un switch propio y lo rechazan ("bad option") antes de
+  // que este codigo llegue a ejecutarse.
+  if (process.argv.includes('uninstall-cleanup')) {
+    app.setLoginItemSettings({ openAtLogin: false });
+    app.quit();
+    return;
+  }
+
   if (process.platform === 'darwin' && app.dock) {
     app.dock.hide();
   }

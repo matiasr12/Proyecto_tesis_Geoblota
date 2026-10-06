@@ -308,4 +308,20 @@ async function getBssidAreaMap(config) {
   );
 }
 
-module.exports = { insertRecords, upsertEquipoRegistro, getEquiposConUltimaUbicacion };
+/**
+ * Areas existentes con el nombre de su faena, para precargar las opciones
+ * del formulario de registro del daemon. Se consulta cada vez que se abre
+ * el formulario, asi un area recien creada aparece de inmediato.
+ */
+async function getAreas(config) {
+  const pool = await getPool(config);
+  const result = await pool.request().query(`
+    SELECT f.Nombre AS faena, a.Nombre AS area
+    FROM dbo.Areas a
+    JOIN dbo.Faenas f ON f.Id = a.FaenaId
+    ORDER BY f.Nombre, a.Nombre
+  `);
+  return result.recordset;
+}
+
+module.exports = { insertRecords, upsertEquipoRegistro, getEquiposConUltimaUbicacion, getAreas };

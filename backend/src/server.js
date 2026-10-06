@@ -2,7 +2,7 @@
 
 const http = require('http');
 const { isAuthorized } = require('./auth');
-const { insertRecords, upsertEquipoRegistro, getEquiposConUltimaUbicacion } = require('./db');
+const { insertRecords, upsertEquipoRegistro, getEquiposConUltimaUbicacion, getAreas } = require('./db');
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MB, de sobra para un lote de registros
 
@@ -106,6 +106,16 @@ async function handleListEquipos(req, res) {
   }
 }
 
+async function handleListAreas(req, res) {
+  try {
+    const areas = await getAreas(req.config);
+    res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ areas }));
+  } catch (err) {
+    console.error('[backend] error al listar areas:', err.message);
+    res.writeHead(500).end();
+  }
+}
+
 const ROUTES = {
   POST: {
     '/api/device-records': handleDeviceRecords,
@@ -113,6 +123,7 @@ const ROUTES = {
   },
   GET: {
     '/api/equipos': handleListEquipos,
+    '/api/areas': handleListAreas,
   },
 };
 

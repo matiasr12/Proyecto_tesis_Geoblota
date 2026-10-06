@@ -103,8 +103,8 @@ function openRegisterWindow() {
   }
 
   registerWindow = new BrowserWindow({
-    width: 380,
-    height: 480,
+    width: 470,
+    height: 660,
     resizable: false,
     autoHideMenuBar: true,
     webPreferences: {

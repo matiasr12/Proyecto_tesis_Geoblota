@@ -8,6 +8,7 @@ const { SERVER_URL, JWT_TOKEN, GOOGLE_GEOLOCATION_API_KEY } = require('./secrets
 
 const RECORDS_PATH = '/api/device-records';
 const EQUIPO_REGISTRO_PATH = '/api/equipos/registro';
+const AREAS_PATH = '/api/areas';
 const COLLECT_INTERVAL_MS = 15 * 60 * 1000;
 
 /**
@@ -34,6 +35,7 @@ function loadConfig() {
     jwtToken: JWT_TOKEN,
     recordsPath: RECORDS_PATH,
     equipoRegistroPath: EQUIPO_REGISTRO_PATH,
+    areasPath: AREAS_PATH,
     collectIntervalMs: COLLECT_INTERVAL_MS,
     dataDir,
     dbEncryptionKey: getOrCreateEncryptionKey(dataDir),

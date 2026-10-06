@@ -51,4 +51,24 @@ async function registerEquipo(equipoInfo, config) {
   return true;
 }
 
-module.exports = { sendRecords, registerEquipo };
+/**
+ * Lista de { faena, area } existentes en el backend, para precargar el
+ * formulario de registro. Se pide cada vez que se abre el formulario.
+ */
+async function fetchAreas(config) {
+  const url = `${config.serverUrl}${config.areasPath}`;
+
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${config.jwtToken}` },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+
+  if (!response.ok) {
+    throw new Error(`El servidor respondio ${response.status} ${response.statusText}`);
+  }
+
+  const { areas } = await response.json();
+  return areas;
+}
+
+module.exports = { sendRecords, registerEquipo, fetchAreas };

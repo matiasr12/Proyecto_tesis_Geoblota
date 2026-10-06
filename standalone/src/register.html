@@ -77,7 +77,8 @@
     margin: 10px 0 5px;
     color: #4a5365;
   }
-  input {
+  input,
+  select {
     width: 100%;
     padding: 9px 10px;
     font-size: 13px;
@@ -87,7 +88,8 @@
     color: #1f2430;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }
-  input:focus {
+  input:focus,
+  select:focus {
     outline: none;
     border-color: #2f6fed;
     box-shadow: 0 0 0 3px rgba(47, 111, 237, 0.15);
@@ -141,11 +143,11 @@
       <div class="field-row">
         <div>
           <label for="faena">Faena</label>
-          <input id="faena" required />
+          <select id="faena" required></select>
         </div>
         <div>
           <label for="area">Área</label>
-          <input id="area" required />
+          <select id="area" required></select>
         </div>
       </div>
 
@@ -178,11 +180,67 @@
     const mensaje = document.getElementById('mensaje');
     const boton = document.getElementById('guardar');
 
-    window.equipoAPI.cargar().then((datos) => {
-      if (!datos) return;
-      for (const campo of ['faena', 'area', 'rut', 'nombre', 'apellido', 'codigoActivo']) {
-        document.getElementById(campo).value = datos[campo] || '';
+    const faenaSelect = document.getElementById('faena');
+    const areaSelect = document.getElementById('area');
+    let areasDisponibles = [];
+    let guardado = null;
+
+    // Arma un desplegable con una opcion vacia al inicio y conserva lo que
+    // estaba elegido si sigue en la lista.
+    function llenarSelect(select, placeholder, valores) {
+      const elegido = select.value;
+      const opciones = [...new Set(valores)].map((valor) => new Option(valor, valor));
+      select.replaceChildren(new Option(placeholder, ''), ...opciones);
+      if (valores.includes(elegido)) select.value = elegido;
+    }
+
+    function actualizarAreas() {
+      const faena = faenaSelect.value;
+      const areas = areasDisponibles.filter((a) => a.faena === faena).map((a) => a.area);
+      // El area ya registrada se mantiene aunque el backend no responda.
+      if (guardado && guardado.faena === faena && guardado.area) areas.push(guardado.area);
+      llenarSelect(areaSelect, faena ? 'Selecciona un área' : 'Primero elige la faena', areas);
+    }
+
+    function actualizarFaenas() {
+      const faenas = areasDisponibles.map((a) => a.faena);
+      if (guardado && guardado.faena) faenas.push(guardado.faena);
+      llenarSelect(faenaSelect, 'Selecciona una faena', faenas);
+      actualizarAreas();
+    }
+
+    function mostrarMensaje(texto) {
+      mensaje.textContent = texto;
+      mensaje.classList.toggle('visible', Boolean(texto));
+    }
+
+    // Se pide al backend cada vez que se abre (y al volver a la ventana),
+    // asi un area recien creada aparece sin reinstalar nada.
+    async function cargarAreas() {
+      areasDisponibles = await window.equipoAPI.listarAreas();
+      actualizarFaenas();
+      mostrarMensaje(
+        areasDisponibles.length === 0
+          ? 'No se pudieron cargar las áreas disponibles. Revisa la conexión a internet y vuelve a abrir esta ventana.'
+          : ''
+      );
+    }
+
+    faenaSelect.addEventListener('change', actualizarAreas);
+    window.addEventListener('focus', cargarAreas);
+
+    window.equipoAPI.cargar().then(async (datos) => {
+      guardado = datos;
+      if (datos) {
+        for (const campo of ['rut', 'nombre', 'apellido', 'codigoActivo']) {
+          document.getElementById(campo).value = datos[campo] || '';
+        }
       }
+      actualizarFaenas();
+      faenaSelect.value = (datos && datos.faena) || '';
+      actualizarAreas();
+      areaSelect.value = (datos && datos.area) || '';
+      await cargarAreas();
     });
 
     form.addEventListener('submit', async (event) => {
