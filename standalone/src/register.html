@@ -194,12 +194,23 @@
       if (valores.includes(elegido)) select.value = elegido;
     }
 
+    // Sin faena elegida muestra todas las areas; con faena, solo las suyas.
     function actualizarAreas() {
       const faena = faenaSelect.value;
-      const areas = areasDisponibles.filter((a) => a.faena === faena).map((a) => a.area);
+      const areas = areasDisponibles.filter((a) => !faena || a.faena === faena).map((a) => a.area);
       // El area ya registrada se mantiene aunque el backend no responda.
-      if (guardado && guardado.faena === faena && guardado.area) areas.push(guardado.area);
-      llenarSelect(areaSelect, faena ? 'Selecciona un área' : 'Primero elige la faena', areas);
+      if (guardado && guardado.area && (!faena || guardado.faena === faena)) areas.push(guardado.area);
+      llenarSelect(areaSelect, 'Selecciona un área', areas);
+    }
+
+    // Al elegir un area sin faena, se completa la faena a la que pertenece.
+    function completarFaena() {
+      if (faenaSelect.value || !areaSelect.value) return;
+      const match = areasDisponibles.find((a) => a.area === areaSelect.value);
+      if (match) {
+        faenaSelect.value = match.faena;
+        actualizarAreas();
+      }
     }
 
     function actualizarFaenas() {
@@ -240,6 +251,7 @@
     }
 
     faenaSelect.addEventListener('change', actualizarAreas);
+    areaSelect.addEventListener('change', completarFaena);
     window.addEventListener('focus', cargarAreas);
 
     window.equipoAPI.cargar().then(async (datos) => {
