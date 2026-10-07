@@ -2,6 +2,9 @@
 
 const sql = require('mssql');
 
+// Debe coincidir con SIN_SENAL_MINUTOS del panel web (src/lib/daemon-api.ts).
+const SIN_SENAL_MINUTOS = 30;
+
 function buildPoolConfig(config) {
   return {
     server: config.dbServer,
@@ -238,7 +241,14 @@ async function getEquiposConUltimaUbicacion(config) {
       dr.Longitud AS longitud,
       dr.PrecisionMetros AS precisionMetros,
       dr.RecordTimestamp AS recordTimestamp,
-      dr.ReceivedAt AS receivedAt
+      dr.ReceivedAt AS receivedAt,
+      -- Geocerca: 1 dentro, 0 fuera, NULL si no hay con que comparar (sin
+      -- poligono en el area asignada o sin lat/long en la ultima lectura).
+      -- geography::Point recibe (latitud, longitud, SRID) en ese orden.
+      CASE
+        WHEN a.Poligono IS NULL OR dr.Latitud IS NULL OR dr.Longitud IS NULL THEN NULL
+        ELSE a.Poligono.STContains(geography::Point(dr.Latitud, dr.Longitud, 4326))
+      END AS dentroDelArea
     FROM dbo.Equipos e
     OUTER APPLY (
       SELECT TOP 1
@@ -246,7 +256,7 @@ async function getEquiposConUltimaUbicacion(config) {
         dr2.RecordTimestamp, dr2.ReceivedAt
       FROM dbo.DeviceRecords dr2
       WHERE dr2.EquipoId = e.Id
-      ORDER BY dr2.RecordTimestamp DESC
+      ORDER BY dr2.ReceivedAt DESC
     ) dr
     LEFT JOIN dbo.Personal p ON p.Id = e.PersonalId
     LEFT JOIN dbo.Areas a ON a.Id = p.AreaId
@@ -255,10 +265,16 @@ async function getEquiposConUltimaUbicacion(config) {
 
   const bssidToArea = await getBssidAreaMap(config);
 
-  return result.recordset.map((row) => {
+  return result.recordset.map(({ dentroDelArea, ...row }) => {
     const bssids = row.bssids ? JSON.parse(row.bssids) : [];
     const match = bssids.map((b) => bssidToArea.get(b.toLowerCase())).find(Boolean) || null;
     const areaDetectada = match ? match.area : null;
+
+    // Mismo umbral que el panel usa para "sin señal": sin lectura en los
+    // ultimos SIN_SENAL_MINUTOS no se evalua la geocerca (el panel ya lo
+    // muestra aparte como sin señal).
+    const minutosDesdeLectura = row.receivedAt ? (Date.now() - row.receivedAt.getTime()) / 60000 : NaN;
+    const lecturaReciente = minutosDesdeLectura <= SIN_SENAL_MINUTOS;
 
     return {
       ...row,
@@ -270,13 +286,10 @@ async function getEquiposConUltimaUbicacion(config) {
       // esta ultima queda como fallback para daemons viejos sin API key.
       latitud: row.latitud ?? (match ? match.latitud : null),
       longitud: row.longitud ?? (match ? match.longitud : null),
-      // Solo alerta si hay algo con que comparar (area detectada por WiFi
-      // distinta a la asignada) y el equipo no esta usando datos moviles --
-      // en datos moviles no hay ningun WiFi de la faena que comparar, no
-      // significa que "salio del area".
-      alerta: Boolean(
-        areaDetectada && row.area && areaDetectada !== row.area && row.connectionType !== 'movil'
-      ),
+      // Geocerca real: alerta solo si hay lectura reciente y el punto cae
+      // fuera del poligono del area asignada. Sin area, sin poligono o sin
+      // lat/long (dentroDelArea NULL) no se puede decidir: sin alerta.
+      alerta: lecturaReciente && dentroDelArea === false,
     };
   });
 }
