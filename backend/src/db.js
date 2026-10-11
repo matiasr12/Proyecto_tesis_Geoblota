@@ -245,6 +245,14 @@ async function getEquiposConUltimaUbicacion(config) {
       p.Apellido AS personalApellido,
       a.Nombre AS area,
       f.Nombre AS faena,
+      t.Nombre AS turno,
+      -- Datos del turno como texto/minutos para no depender de la zona
+      -- horaria con que el driver convierte DATE y TIME a Date de JS.
+      CONVERT(CHAR(10), t.FechaInicioCiclo, 23) AS turnoFechaInicioCiclo,
+      DATEDIFF(MINUTE, CAST('00:00' AS TIME), t.HoraInicio) AS turnoInicioMin,
+      DATEDIFF(MINUTE, CAST('00:00' AS TIME), t.HoraFin) AS turnoFinMin,
+      t.DiasTrabajo AS turnoDiasTrabajo,
+      t.DiasDescanso AS turnoDiasDescanso,
       dr.Bssids AS bssids,
       dr.Ip AS ip,
       dr.ConnectionType AS connectionType,
@@ -272,11 +280,23 @@ async function getEquiposConUltimaUbicacion(config) {
     LEFT JOIN dbo.Personal p ON p.Id = e.PersonalId
     LEFT JOIN dbo.Areas a ON a.Id = p.AreaId
     LEFT JOIN dbo.Faenas f ON f.Id = p.FaenaId
+    LEFT JOIN dbo.Turnos t ON t.Id = p.TurnoId
   `);
 
   const bssidToArea = await getBssidAreaMap(config);
 
-  return result.recordset.map(({ dentroDelArea, ...row }) => {
+  const ahora = new Date();
+
+  return result.recordset.map(
+    ({
+      dentroDelArea,
+      turnoFechaInicioCiclo,
+      turnoInicioMin,
+      turnoFinMin,
+      turnoDiasTrabajo,
+      turnoDiasDescanso,
+      ...row
+    }) => {
     const bssids = row.bssids ? JSON.parse(row.bssids) : [];
     const match = bssids.map((b) => bssidToArea.get(b.toLowerCase())).find(Boolean) || null;
     const areaDetectada = match ? match.area : null;
@@ -301,8 +321,71 @@ async function getEquiposConUltimaUbicacion(config) {
       // fuera del poligono del area asignada. Sin area, sin poligono o sin
       // lat/long (dentroDelArea NULL) no se puede decidir: sin alerta.
       alerta: lecturaReciente && dentroDelArea === false,
+      // true/false si el custodio esta en turno ahora; null si no tiene turno
+      // asignado. El panel lo usa para distinguir "fuera de turno" de "sin
+      // señal".
+      enTurno: row.turno
+        ? estaEnTurno(
+            {
+              fechaInicioCiclo: turnoFechaInicioCiclo,
+              inicioMin: turnoInicioMin,
+              finMin: turnoFinMin,
+              diasTrabajo: turnoDiasTrabajo,
+              diasDescanso: turnoDiasDescanso,
+            },
+            ahora
+          )
+        : null,
     };
   });
+}
+
+const ZONA_HORARIA_FAENA = 'America/Santiago';
+
+/**
+ * Fecha (dias desde 1970-01-01) y minuto del dia de `fecha` en la hora local
+ * de Chile. Los turnos estan definidos en hora local, no en la UTC del
+ * servidor de Azure.
+ */
+function fechaLocalChile(fecha) {
+  const partes = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: ZONA_HORARIA_FAENA,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+      .formatToParts(fecha)
+      .map(({ type, value }) => [type, Number(value)])
+  );
+  return {
+    dia: Date.UTC(partes.year, partes.month - 1, partes.day) / 86400000,
+    minuto: partes.hour * 60 + partes.minute,
+  };
+}
+
+/**
+ * Si un turno (ej. 7x7 de 08:00 a 20:00) esta en horario en el instante
+ * `fecha`. El ciclo dura diasTrabajo + diasDescanso dias contados desde
+ * fechaInicioCiclo (primer dia de trabajo). Un turno nocturno (fin < inicio,
+ * ej. 20:00 a 08:00) que empezo un dia de trabajo sigue en horario hasta la
+ * mañana siguiente aunque ese dia ya sea de descanso.
+ */
+function estaEnTurno({ fechaInicioCiclo, inicioMin, finMin, diasTrabajo, diasDescanso }, fecha) {
+  const { dia, minuto } = fechaLocalChile(fecha);
+  const diaInicioCiclo = Date.parse(`${fechaInicioCiclo}T00:00:00Z`) / 86400000;
+  const ciclo = diasTrabajo + diasDescanso;
+  const esDiaDeTrabajo = (d) => (((d - diaInicioCiclo) % ciclo) + ciclo) % ciclo < diasTrabajo;
+
+  if (inicioMin < finMin) {
+    return esDiaDeTrabajo(dia) && minuto >= inicioMin && minuto < finMin;
+  }
+  if (minuto >= inicioMin) return esDiaDeTrabajo(dia);
+  if (minuto < finMin) return esDiaDeTrabajo(dia - 1);
+  return false;
 }
 
 /**
