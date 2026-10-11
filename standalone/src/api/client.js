@@ -71,4 +71,24 @@ async function fetchAreas(config) {
   return areas;
 }
 
-module.exports = { sendRecords, registerEquipo, fetchAreas };
+/**
+ * Lista de { nombre, horaInicio, horaFin } de los turnos existentes en el
+ * backend, para el desplegable de turno del formulario de registro.
+ */
+async function fetchTurnos(config) {
+  const url = `${config.serverUrl}${config.turnosPath}`;
+
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${config.jwtToken}` },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+
+  if (!response.ok) {
+    throw new Error(`El servidor respondio ${response.status} ${response.statusText}`);
+  }
+
+  const { turnos } = await response.json();
+  return turnos;
+}
+
+module.exports = { sendRecords, registerEquipo, fetchAreas, fetchTurnos };

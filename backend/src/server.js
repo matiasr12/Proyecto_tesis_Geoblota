@@ -2,7 +2,7 @@
 
 const http = require('http');
 const { isAuthorized } = require('./auth');
-const { insertRecords, upsertEquipoRegistro, getEquiposConUltimaUbicacion, getAreas } = require('./db');
+const { insertRecords, upsertEquipoRegistro, getEquiposConUltimaUbicacion, getAreas, getTurnos } = require('./db');
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MB, de sobra para un lote de registros
 
@@ -28,7 +28,12 @@ function isValidRecord(record) {
 
 function isValidRegistro(registro) {
   const fields = ['computerName', 'codigoActivo', 'rut', 'nombre', 'apellido', 'faena', 'area'];
-  return registro && fields.every((field) => typeof registro[field] === 'string' && registro[field].length > 0);
+  return (
+    registro &&
+    fields.every((field) => typeof registro[field] === 'string' && registro[field].length > 0) &&
+    // Opcional: instaladores anteriores al desplegable de turnos no lo mandan.
+    (registro.turno === undefined || (typeof registro.turno === 'string' && registro.turno.length > 0))
+  );
 }
 
 function readBody(req, res) {
@@ -116,6 +121,16 @@ async function handleListAreas(req, res) {
   }
 }
 
+async function handleListTurnos(req, res) {
+  try {
+    const turnos = await getTurnos(req.config);
+    res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ turnos }));
+  } catch (err) {
+    console.error('[backend] error al listar turnos:', err.message);
+    res.writeHead(500).end();
+  }
+}
+
 const ROUTES = {
   POST: {
     '/api/device-records': handleDeviceRecords,
@@ -124,6 +139,7 @@ const ROUTES = {
   GET: {
     '/api/equipos': handleListEquipos,
     '/api/areas': handleListAreas,
+    '/api/turnos': handleListTurnos,
   },
 };
 

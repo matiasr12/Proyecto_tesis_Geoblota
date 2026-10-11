@@ -7,7 +7,7 @@ const { version } = require('../package.json');
 const { loadConfig } = require('./config');
 const { PendingRecordsStore } = require('./storage/db');
 const { createScheduler } = require('./scheduler');
-const { registerEquipo, fetchAreas } = require('./api/client');
+const { registerEquipo, fetchAreas, fetchTurnos } = require('./api/client');
 const { markEquipoInfoSent } = require('./equipoRegistration');
 const { getComputerName } = require('./collectors');
 
@@ -89,7 +89,7 @@ function openRegisterWindow() {
 
   registerWindow = new BrowserWindow({
     width: 470,
-    height: 660,
+    height: 730,
     resizable: false,
     autoHideMenuBar: true,
     // Se muestra recien cuando ya esta pintada, en vez de un recuadro en
@@ -114,6 +114,14 @@ ipcMain.handle('cargar-equipo-info', () => readEquipoInfo());
 ipcMain.handle('listar-areas', async () => {
   try {
     return await fetchAreas(config);
+  } catch {
+    return [];
+  }
+});
+
+ipcMain.handle('listar-turnos', async () => {
+  try {
+    return await fetchTurnos(config);
   } catch {
     return [];
   }

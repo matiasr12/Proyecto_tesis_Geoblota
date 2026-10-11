@@ -166,6 +166,9 @@
         </div>
       </div>
 
+      <label for="turno">Turno</label>
+      <select id="turno"></select>
+
       <div class="section-title">Equipo</div>
       <label for="codigoActivo">Código de activo</label>
       <input id="codigoActivo" required />
@@ -182,7 +185,9 @@
 
     const faenaSelect = document.getElementById('faena');
     const areaSelect = document.getElementById('area');
+    const turnoSelect = document.getElementById('turno');
     let areasDisponibles = [];
+    let turnosDisponibles = [];
     let guardado = null;
 
     // Arma un desplegable con una opcion vacia al inicio y conserva lo que
@@ -208,6 +213,21 @@
       actualizarAreas();
     }
 
+    // Muestra "Nombre (08:00 - 20:00)" pero guarda solo el nombre del turno.
+    function actualizarTurnos() {
+      const elegido = turnoSelect.value;
+      const turnos = turnosDisponibles.map((t) => ({ valor: t.nombre, texto: `${t.nombre} (${t.horaInicio} - ${t.horaFin})` }));
+      // El turno ya registrado se mantiene aunque el backend no responda.
+      if (guardado && guardado.turno && !turnos.some((t) => t.valor === guardado.turno)) {
+        turnos.push({ valor: guardado.turno, texto: guardado.turno });
+      }
+      turnoSelect.replaceChildren(new Option('Selecciona un turno', ''), ...turnos.map((t) => new Option(t.texto, t.valor)));
+      if (turnos.some((t) => t.valor === elegido)) turnoSelect.value = elegido;
+      // Obligatorio solo si hay turnos cargados en la base; si no hay ninguno
+      // no se bloquea el registro.
+      turnoSelect.required = turnos.length > 0;
+    }
+
     function mostrarMensaje(texto) {
       mensaje.textContent = texto;
       mensaje.classList.toggle('visible', Boolean(texto));
@@ -220,11 +240,12 @@
     let cargaEnCurso = null;
     function cargarAreas() {
       if (!cargaEnCurso) {
-        cargaEnCurso = window.equipoAPI
-          .listarAreas()
-          .then((areas) => {
+        cargaEnCurso = Promise.all([window.equipoAPI.listarAreas(), window.equipoAPI.listarTurnos()])
+          .then(([areas, turnos]) => {
             areasDisponibles = areas;
+            turnosDisponibles = turnos;
             actualizarFaenas();
+            actualizarTurnos();
             mostrarMensaje(
               areasDisponibles.length === 0
                 ? 'No se pudieron cargar las áreas disponibles. Revisa la conexión a internet y vuelve a abrir esta ventana.'
@@ -251,6 +272,8 @@
       faenaSelect.value = (datos && datos.faena) || '';
       actualizarAreas();
       areaSelect.value = (datos && datos.area) || '';
+      actualizarTurnos();
+      turnoSelect.value = (datos && datos.turno) || '';
       await cargarAreas();
     });
 
@@ -268,6 +291,8 @@
         apellido: document.getElementById('apellido').value.trim(),
         codigoActivo: document.getElementById('codigoActivo').value.trim(),
       };
+      // Sin turno elegido no se manda el campo: el backend no toca el turno.
+      if (turnoSelect.value) datos.turno = turnoSelect.value;
 
       try {
         await window.equipoAPI.guardar(datos);

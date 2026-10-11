@@ -133,7 +133,12 @@ async function getOrCreateAreaId(transaction, nombre, faenaId) {
   return created.recordset[0].Id;
 }
 
-async function upsertPersonal(transaction, { rut, nombre, apellido, areaId, faenaId }) {
+/**
+ * turno es el nombre de un registro de dbo.Turnos. Si viene undefined
+ * (instaladores anteriores al desplegable de turnos) no se toca el TurnoId
+ * que ya tenga la persona.
+ */
+async function upsertPersonal(transaction, { rut, nombre, apellido, areaId, faenaId, turno }) {
   const select = new sql.Request(transaction);
   select.input('rut', sql.NVarChar, rut);
   const existing = await select.query('SELECT Id FROM dbo.Personal WHERE Rut = @rut');
@@ -146,8 +151,13 @@ async function upsertPersonal(transaction, { rut, nombre, apellido, areaId, faen
     update.input('apellido', sql.NVarChar, apellido);
     update.input('areaId', sql.Int, areaId);
     update.input('faenaId', sql.Int, faenaId);
+    update.input('turno', sql.NVarChar, turno ?? null);
+    update.input('actualizarTurno', sql.Bit, turno !== undefined);
     await update.query(`
-      UPDATE dbo.Personal SET Nombre = @nombre, Apellido = @apellido, AreaId = @areaId, FaenaId = @faenaId
+      UPDATE dbo.Personal SET Nombre = @nombre, Apellido = @apellido, AreaId = @areaId, FaenaId = @faenaId,
+        TurnoId = CASE WHEN @actualizarTurno = 1
+          THEN (SELECT Id FROM dbo.Turnos WHERE Nombre = @turno)
+          ELSE TurnoId END
       WHERE Id = @id
     `);
     return personalId;
@@ -159,10 +169,11 @@ async function upsertPersonal(transaction, { rut, nombre, apellido, areaId, faen
   insert.input('apellido', sql.NVarChar, apellido);
   insert.input('areaId', sql.Int, areaId);
   insert.input('faenaId', sql.Int, faenaId);
+  insert.input('turno', sql.NVarChar, turno ?? null);
   const created = await insert.query(`
-    INSERT INTO dbo.Personal (Rut, Nombre, Apellido, AreaId, FaenaId)
+    INSERT INTO dbo.Personal (Rut, Nombre, Apellido, AreaId, FaenaId, TurnoId)
     OUTPUT INSERTED.Id
-    VALUES (@rut, @nombre, @apellido, @areaId, @faenaId)
+    VALUES (@rut, @nombre, @apellido, @areaId, @faenaId, (SELECT Id FROM dbo.Turnos WHERE Nombre = @turno))
   `);
   return created.recordset[0].Id;
 }
@@ -200,7 +211,7 @@ async function upsertEquipo(transaction, { computerName, codigoActivo, personalI
  * nivel (por nombre de faena/area, por rut de la persona, por ComputerName
  * del equipo) para que reintentar el mismo registro sea seguro.
  */
-async function upsertEquipoRegistro(config, { computerName, codigoActivo, rut, nombre, apellido, faena, area }) {
+async function upsertEquipoRegistro(config, { computerName, codigoActivo, rut, nombre, apellido, faena, area, turno }) {
   const pool = await getPool(config);
   const transaction = new sql.Transaction(pool);
   await transaction.begin();
@@ -208,7 +219,7 @@ async function upsertEquipoRegistro(config, { computerName, codigoActivo, rut, n
   try {
     const faenaId = await getOrCreateFaenaId(transaction, faena);
     const areaId = await getOrCreateAreaId(transaction, area, faenaId);
-    const personalId = await upsertPersonal(transaction, { rut, nombre, apellido, areaId, faenaId });
+    const personalId = await upsertPersonal(transaction, { rut, nombre, apellido, areaId, faenaId, turno });
     await upsertEquipo(transaction, { computerName, codigoActivo, personalId });
     await transaction.commit();
   } catch (err) {
@@ -347,4 +358,21 @@ async function getAreas(config) {
   return result.recordset;
 }
 
-module.exports = { insertRecords, upsertEquipoRegistro, getEquiposConUltimaUbicacion, getAreas };
+/**
+ * Turnos existentes (nombre y horario), para el desplegable del formulario
+ * de registro del daemon. Se consulta cada vez que se abre el formulario.
+ */
+async function getTurnos(config) {
+  const pool = await getPool(config);
+  const result = await pool.request().query(`
+    SELECT
+      Nombre AS nombre,
+      CONVERT(VARCHAR(5), HoraInicio, 108) AS horaInicio,
+      CONVERT(VARCHAR(5), HoraFin, 108) AS horaFin
+    FROM dbo.Turnos
+    ORDER BY Nombre
+  `);
+  return result.recordset;
+}
+
+module.exports = { insertRecords, upsertEquipoRegistro, getEquiposConUltimaUbicacion, getAreas, getTurnos };
