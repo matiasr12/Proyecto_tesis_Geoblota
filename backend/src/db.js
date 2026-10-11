@@ -67,6 +67,7 @@ async function insertRecords(config, records) {
   const pool = await getPool(config);
   const transaction = new sql.Transaction(pool);
   await transaction.begin();
+  const insertados = [];
 
   try {
     for (const record of records) {
@@ -81,18 +82,78 @@ async function insertRecords(config, records) {
       request.input('longitud', sql.Decimal(9, 6), record.longitud ?? null);
       request.input('precisionMetros', sql.Decimal(10, 2), record.precisionMetros ?? null);
       request.input('recordTimestamp', sql.DateTime2, new Date(record.timestamp));
-      await request.query(`
+      const result = await request.query(`
         INSERT INTO dbo.DeviceRecords
           (EquipoId, Bssids, Ip, ConnectionType, Latitud, Longitud, PrecisionMetros, RecordTimestamp, ReceivedAt)
+        OUTPUT INSERTED.Id
         VALUES
           (@equipoId, @bssids, @ip, @connectionType, @latitud, @longitud, @precisionMetros, @recordTimestamp, SYSUTCDATETIME())
       `);
+      insertados.push({
+        equipoId,
+        deviceRecordId: result.recordset[0].Id,
+        latitud: record.latitud ?? null,
+        longitud: record.longitud ?? null,
+        fecha: new Date(record.timestamp),
+      });
     }
     await transaction.commit();
   } catch (err) {
     await transaction.rollback();
     throw err;
   }
+
+  // Fuera de la transaccion: si falla el historial de alertas (p. ej. falta
+  // la tabla Alertas) los registros ya quedaron guardados igual.
+  try {
+    for (const insertado of insertados) {
+      await actualizarAlerta(pool, insertado);
+    }
+  } catch (err) {
+    console.error('[backend] error al actualizar el historial de alertas:', err.message);
+  }
+}
+
+/**
+ * Historial de geocerca en dbo.Alertas, evaluado con cada lectura que llega
+ * (en orden, asi las lecturas encoladas sin internet tambien cuentan):
+ * - fuera del poligono del area asignada y sin alerta abierta -> abre una;
+ * - dentro y con una alerta abierta -> la cierra.
+ * Sin area, sin poligono o sin lat/long no se puede decidir: no hace nada.
+ * Las fechas son las de la lectura (RecordTimestamp), no las de llegada.
+ */
+async function actualizarAlerta(pool, { equipoId, deviceRecordId, latitud, longitud, fecha }) {
+  const request = pool.request();
+  request.input('equipoId', sql.Int, equipoId);
+  request.input('deviceRecordId', sql.Int, deviceRecordId);
+  request.input('latitud', sql.Decimal(9, 6), latitud);
+  request.input('longitud', sql.Decimal(9, 6), longitud);
+  request.input('fecha', sql.DateTime2, fecha);
+  await request.query(`
+    DECLARE @areaId INT, @dentro BIT;
+
+    -- geography::Point recibe (latitud, longitud, SRID) en ese orden.
+    SELECT
+      @areaId = a.Id,
+      @dentro = CASE
+        WHEN a.Poligono IS NULL OR @latitud IS NULL OR @longitud IS NULL THEN NULL
+        ELSE a.Poligono.STContains(geography::Point(@latitud, @longitud, 4326))
+      END
+    FROM dbo.Equipos e
+    JOIN dbo.Personal p ON p.Id = e.PersonalId
+    JOIN dbo.Areas a ON a.Id = p.AreaId
+    WHERE e.Id = @equipoId;
+
+    IF @dentro = 0 AND NOT EXISTS (
+      SELECT 1 FROM dbo.Alertas WHERE EquipoId = @equipoId AND Estado <> 'cerrada'
+    )
+      INSERT INTO dbo.Alertas (EquipoId, AreaId, DeviceRecordId, Estado, FechaInicio)
+      VALUES (@equipoId, @areaId, @deviceRecordId, 'abierta', @fecha);
+    ELSE IF @dentro = 1
+      UPDATE dbo.Alertas
+      SET Estado = 'cerrada', FechaCierre = @fecha
+      WHERE EquipoId = @equipoId AND Estado <> 'cerrada';
+  `);
 }
 
 async function getOrCreateFaenaId(transaction, nombre) {
