@@ -82,9 +82,10 @@ menus quedan vacios y la ventana muestra un aviso. Para que la ventana abra rapi
 primera recoleccion (PowerShell/netsh) arranca recien cuando la ventana ya esta en
 pantalla.
 
-Al desinstalar, el desinstalador corre el propio ejecutable con `uninstall-cleanup`
-para quitar la entrada de inicio de Windows, y borra los datos locales (cola cifrada,
-`equipo-info.json`, clave). Ver `standalone/build/installer.nsh`.
+Al desinstalar, el desinstalador borra la entrada de inicio de Windows
+(`electron.app.TesisInventario` en `HKCU\...\Run` y en `StartupApproved\Run`) y
+los datos locales (cola cifrada, `equipo-info.json`, clave). Ver
+`standalone/build/installer.nsh`.
 
 ## 2. Empaquetar el tray como ejecutable
 

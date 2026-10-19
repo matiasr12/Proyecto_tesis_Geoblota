@@ -1,14 +1,16 @@
 ; Script custom de NSIS, incluido automaticamente por electron-builder
 ; (convencion: build/installer.nsh) al generar el instalador/desinstalador.
 ;
-; Antes de borrar los archivos de la instalacion, corre el propio
-; ejecutable con --uninstall-cleanup para que Electron deshaga el
-; autoarranque que el mismo registro (app.setLoginItemSettings), en vez de
-; adivinar el nombre exacto de la entrada en el registro de Windows desde
-; este script. El borrado de los datos locales (cola pendiente cifrada,
-; equipo-info.json, clave de cifrado) lo hace electron-builder solo via
+; Quita el autoarranque que la app registra con app.setLoginItemSettings.
+; Se borra la entrada del registro directamente porque electron-builder corre
+; customUnInstall DESPUES de borrar los archivos: ya no se puede ejecutar la
+; app para que lo deshaga ella misma. Electron nombra la entrada
+; "electron.app.<productName>". StartupApproved guarda si el usuario la
+; habilito/deshabilito desde el Administrador de tareas.
+; El borrado de los datos locales (cola pendiente cifrada, equipo-info.json,
+; clave de cifrado) lo hace electron-builder solo via
 ; "deleteAppDataOnUninstall" en package.json.
 !macro customUnInstall
-  IfFileExists "$INSTDIR\${APP_EXECUTABLE_FILENAME}" 0 +2
-    ExecWait '"$INSTDIR\${APP_EXECUTABLE_FILENAME}" uninstall-cleanup'
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "electron.app.${PRODUCT_NAME}"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "electron.app.${PRODUCT_NAME}"
 !macroend

@@ -147,19 +147,6 @@ ipcMain.handle('guardar-equipo-info', async (event, datos) => {
 });
 
 app.whenReady().then(() => {
-  // El desinstalador llama al propio ejecutable con este argumento antes de
-  // borrar los archivos, para que Electron deshaga exactamente el registro
-  // de autoarranque que el mismo creo (sin tener que adivinar el nombre de
-  // la entrada en el registro de Windows desde el script de NSIS). Sin
-  // guiones a proposito: Electron/Chromium interceptan cualquier "--algo"
-  // como si fuera un switch propio y lo rechazan ("bad option") antes de
-  // que este codigo llegue a ejecutarse.
-  if (process.argv.includes('uninstall-cleanup')) {
-    app.setLoginItemSettings({ openAtLogin: false });
-    app.quit();
-    return;
-  }
-
   if (process.platform === 'darwin' && app.dock) {
     app.dock.hide();
   }
