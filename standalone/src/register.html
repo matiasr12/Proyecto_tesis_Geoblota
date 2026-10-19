@@ -190,11 +190,15 @@
     let turnosDisponibles = [];
     let guardado = null;
 
+    // Orden alfabetico en español, sin distinguir mayusculas/acentos y
+    // entendiendo numeros (asi "4x3" va antes que "14x14").
+    const orden = new Intl.Collator('es', { numeric: true, sensitivity: 'base' });
+
     // Arma un desplegable con una opcion vacia al inicio y conserva lo que
     // estaba elegido si sigue en la lista.
     function llenarSelect(select, placeholder, valores) {
       const elegido = select.value;
-      const opciones = [...new Set(valores)].map((valor) => new Option(valor, valor));
+      const opciones = [...new Set(valores)].sort(orden.compare).map((valor) => new Option(valor, valor));
       select.replaceChildren(new Option(placeholder, ''), ...opciones);
       if (valores.includes(elegido)) select.value = elegido;
     }
@@ -221,6 +225,7 @@
       if (guardado && guardado.turno && !turnos.some((t) => t.valor === guardado.turno)) {
         turnos.push({ valor: guardado.turno, texto: guardado.turno });
       }
+      turnos.sort((a, b) => orden.compare(a.valor, b.valor));
       turnoSelect.replaceChildren(new Option('Selecciona un turno', ''), ...turnos.map((t) => new Option(t.texto, t.valor)));
       if (turnos.some((t) => t.valor === elegido)) turnoSelect.value = elegido;
       // Obligatorio solo si hay turnos cargados en la base; si no hay ninguno
