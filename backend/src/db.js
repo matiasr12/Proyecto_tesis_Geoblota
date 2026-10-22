@@ -5,6 +5,20 @@ const sql = require('mssql');
 // Debe coincidir con SIN_SENAL_MINUTOS del panel web (src/lib/daemon-api.ts).
 const SIN_SENAL_MINUTOS = 30;
 
+/**
+ * SELECT con la ubicacion estimada por los routers conocidos: promedio de
+ * las coordenadas en BssidsArea de los BSSID de una lectura (columna o
+ * variable con el JSON de Bssids). Da NULL si la lectura no ve ningun router
+ * registrado con coordenadas. En la red corporativa la ubicacion de Windows
+ * cae en el punto de salida a internet, por eso un router conocido manda.
+ */
+const UBICACION_POR_ROUTERS_SQL = (bssidsJson) => `
+  SELECT AVG(CAST(ba.Latitud AS FLOAT)) AS latitud, AVG(CAST(ba.Longitud AS FLOAT)) AS longitud
+  FROM OPENJSON(CASE WHEN ISJSON(${bssidsJson}) = 1 THEN ${bssidsJson} END) j
+  JOIN dbo.BssidsArea ba ON ba.Bssid = LOWER(j.value)
+  WHERE ba.Latitud IS NOT NULL AND ba.Longitud IS NOT NULL
+`;
+
 function buildPoolConfig(config) {
   return {
     server: config.dbServer,
@@ -92,6 +106,7 @@ async function insertRecords(config, records) {
       insertados.push({
         equipoId,
         deviceRecordId: result.recordset[0].Id,
+        bssids: JSON.stringify(record.bssids),
         latitud: record.latitud ?? null,
         longitud: record.longitud ?? null,
         fecha: new Date(record.timestamp),
@@ -119,25 +134,34 @@ async function insertRecords(config, records) {
  * (en orden, asi las lecturas encoladas sin internet tambien cuentan):
  * - fuera del poligono del area asignada y sin alerta abierta -> abre una;
  * - dentro y con una alerta abierta -> la cierra.
- * Sin area, sin poligono o sin lat/long no se puede decidir: no hace nada.
+ * Sin area, sin poligono o sin ubicacion no se puede decidir: no hace nada.
+ * La ubicacion es la de los routers conocidos si la lectura ve alguno (ver
+ * UBICACION_POR_ROUTERS_SQL); si no, la que mando el PC (Windows).
  * Las fechas son las de la lectura (RecordTimestamp), no las de llegada.
  */
-async function actualizarAlerta(pool, { equipoId, deviceRecordId, latitud, longitud, fecha }) {
+async function actualizarAlerta(pool, { equipoId, deviceRecordId, bssids, latitud, longitud, fecha }) {
   const request = pool.request();
   request.input('equipoId', sql.Int, equipoId);
   request.input('deviceRecordId', sql.Int, deviceRecordId);
+  request.input('bssids', sql.NVarChar, bssids ?? null);
   request.input('latitud', sql.Decimal(9, 6), latitud);
   request.input('longitud', sql.Decimal(9, 6), longitud);
   request.input('fecha', sql.DateTime2, fecha);
   await request.query(`
-    DECLARE @areaId INT, @dentro BIT;
+    DECLARE @areaId INT, @dentro BIT, @latRouters FLOAT, @lonRouters FLOAT;
+
+    SELECT @latRouters = r.latitud, @lonRouters = r.longitud
+    FROM (${UBICACION_POR_ROUTERS_SQL('@bssids')}) r;
+
+    DECLARE @lat FLOAT = COALESCE(@latRouters, @latitud);
+    DECLARE @lon FLOAT = COALESCE(@lonRouters, @longitud);
 
     -- geography::Point recibe (latitud, longitud, SRID) en ese orden.
     SELECT
       @areaId = a.Id,
       @dentro = CASE
-        WHEN a.Poligono IS NULL OR @latitud IS NULL OR @longitud IS NULL THEN NULL
-        ELSE a.Poligono.STContains(geography::Point(@latitud, @longitud, 4326))
+        WHEN a.Poligono IS NULL OR @lat IS NULL OR @lon IS NULL THEN NULL
+        ELSE a.Poligono.STContains(geography::Point(@lat, @lon, 4326))
       END
     FROM dbo.Equipos e
     JOIN dbo.Personal p ON p.Id = e.PersonalId
@@ -317,17 +341,24 @@ async function getEquiposConUltimaUbicacion(config) {
       dr.Bssids AS bssids,
       dr.Ip AS ip,
       dr.ConnectionType AS connectionType,
-      dr.Latitud AS latitud,
-      dr.Longitud AS longitud,
+      -- Ubicacion efectiva: la de los routers conocidos si la lectura ve
+      -- alguno; si no, la que mando el PC (Windows).
+      COALESCE(rt.latitud, dr.Latitud) AS latitud,
+      COALESCE(rt.longitud, dr.Longitud) AS longitud,
+      CASE
+        WHEN rt.latitud IS NOT NULL THEN 'routers'
+        WHEN dr.Latitud IS NOT NULL THEN 'windows'
+      END AS fuenteUbicacion,
       dr.PrecisionMetros AS precisionMetros,
       dr.RecordTimestamp AS recordTimestamp,
       dr.ReceivedAt AS receivedAt,
       -- Geocerca: 1 dentro, 0 fuera, NULL si no hay con que comparar (sin
-      -- poligono en el area asignada o sin lat/long en la ultima lectura).
+      -- poligono en el area asignada o sin ubicacion en la ultima lectura).
       -- geography::Point recibe (latitud, longitud, SRID) en ese orden.
       CASE
-        WHEN a.Poligono IS NULL OR dr.Latitud IS NULL OR dr.Longitud IS NULL THEN NULL
-        ELSE a.Poligono.STContains(geography::Point(dr.Latitud, dr.Longitud, 4326))
+        WHEN a.Poligono IS NULL OR COALESCE(rt.latitud, dr.Latitud) IS NULL THEN NULL
+        ELSE a.Poligono.STContains(geography::Point(
+          COALESCE(rt.latitud, dr.Latitud), COALESCE(rt.longitud, dr.Longitud), 4326))
       END AS dentroDelArea
     FROM dbo.Equipos e
     OUTER APPLY (
@@ -338,6 +369,7 @@ async function getEquiposConUltimaUbicacion(config) {
       WHERE dr2.EquipoId = e.Id
       ORDER BY dr2.ReceivedAt DESC
     ) dr
+    OUTER APPLY (${UBICACION_POR_ROUTERS_SQL('dr.Bssids')}) rt
     LEFT JOIN dbo.Personal p ON p.Id = e.PersonalId
     LEFT JOIN dbo.Areas a ON a.Id = p.AreaId
     LEFT JOIN dbo.Faenas f ON f.Id = p.FaenaId
@@ -372,12 +404,6 @@ async function getEquiposConUltimaUbicacion(config) {
       ...row,
       bssids,
       areaDetectada,
-      // Preferir la ubicacion que el propio daemon resolvio via Geolocation
-      // API (mas precisa, real, cualquier lugar) sobre la inferida por
-      // BssidsArea (aproximada, solo sirve para los BSSID cargados a mano) --
-      // esta ultima queda como fallback para daemons viejos sin API key.
-      latitud: row.latitud ?? (match ? match.latitud : null),
-      longitud: row.longitud ?? (match ? match.longitud : null),
       // Geocerca real: alerta solo si hay lectura reciente y el punto cae
       // fuera del poligono del area asignada. Sin area, sin poligono o sin
       // lat/long (dentroDelArea NULL) no se puede decidir: sin alerta.

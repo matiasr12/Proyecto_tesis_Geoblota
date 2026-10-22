@@ -155,8 +155,9 @@ areas cuando la persona elige una faena y un area de otra faena.
 Rutas de lectura (mismo token):
 
 - `GET /api/equipos`: un renglon por equipo con su persona/area/faena, ultima
-  ubicacion y `alerta` si el area detectada por WiFi es distinta a la asignada (no
-  alerta si la conexion es datos moviles).
+  ubicacion y `alerta` si esa ubicacion cae fuera del poligono del area asignada.
+  La ubicacion es el promedio de los routers de `dbo.BssidsArea` que ve la lectura
+  (con coordenadas); si no ve ninguno, la que mando el PC (Windows).
 - `GET /api/areas`: lista `{ faena, area }` para los desplegables del registro.
 
 ### Areas y poligonos (Google Earth)
