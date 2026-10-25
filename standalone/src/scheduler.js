@@ -30,14 +30,25 @@ async function trySendPendingEquipoInfo(config, dataDir, logger) {
 // el proximo tick de 15 min.
 const REINTENTO_SIN_CONEXION_MS = 30 * 1000;
 
+// Cada cuanto se pregunta al sistema si hay red, para poner el icono en rojo
+// apenas se corta (sin esperar a que falle un envio) y reenviar apenas vuelve.
+const VIGILANCIA_RED_MS = 10 * 1000;
+
 /**
  * Igual que el scheduler del daemon, pero en vez de escribir status.json a
  * disco llama a onStatus(status) directo: todo corre en el mismo proceso
  * (tray + recoleccion), no hace falta el archivo como puente entre dos apps.
  */
-function createScheduler({ config, store, onStatus, logger = console }) {
+function createScheduler({ config, store, onStatus, hayRed = () => true, logger = console }) {
   let timer = null;
   let reintentoTimer = null;
+  let vigilanciaTimer = null;
+  let estado = null;
+  let redAnterior = true;
+  const avisar = (status) => {
+    estado = status.state;
+    onStatus(status);
+  };
   // tick y reintentar nunca corren a la vez: si se solaparan, los mismos
   // registros de la cola se mandarian dos veces.
   let enCurso = Promise.resolve();
@@ -58,12 +69,16 @@ function createScheduler({ config, store, onStatus, logger = console }) {
   /**
    * Mientras se esta sin conexion: intenta mandar solo la cola. Si sale bien
    * volvio internet, asi que corre un tick completo para mandar tambien una
-   * lectura nueva (la de ahora, no solo las encoladas).
+   * lectura nueva (la de ahora, no solo las encoladas). Con la cola vacia
+   * (se corto la red entre ticks) basta con el tick.
    */
   async function reintentar() {
+    // Ya reconecto otro reintento que estaba en la fila, o sigue sin red.
+    if (estado !== 'offline' || !hayRed()) return;
     const pending = store.getAll();
     if (pending.length === 0) {
       detenerReintentos();
+      await tick();
       return;
     }
     try {
@@ -73,8 +88,22 @@ function createScheduler({ config, store, onStatus, logger = console }) {
     }
     store.deleteByIds(pending.map((p) => p.id));
     detenerReintentos();
-    onStatus({ state: 'online', lastSuccessAt: new Date().toISOString(), pendingCount: 0 });
+    avisar({ state: 'online', lastSuccessAt: new Date().toISOString(), pendingCount: 0 });
     await tick();
+  }
+
+  /**
+   * Sin red: icono en rojo de inmediato. Al volver la red: reenvia de
+   * inmediato, sin esperar el proximo reintento.
+   */
+  function vigilarRed() {
+    const red = hayRed();
+    if (!red && estado !== 'offline') {
+      avisar({ state: 'offline', pendingCount: store.count(), lastError: 'Sin conexion de red' });
+      iniciarReintentos();
+    }
+    if (red && !redAnterior) enOrden(reintentar);
+    redAnterior = red;
   }
 
   async function tick() {
@@ -85,7 +114,7 @@ function createScheduler({ config, store, onStatus, logger = console }) {
       snapshot = await collectSnapshot(config);
     } catch (error) {
       logger.error('Fallo al recolectar el snapshot:', error);
-      onStatus({ state: 'error', pendingCount: store.count(), lastError: error.message });
+      avisar({ state: 'error', pendingCount: store.count(), lastError: error.message });
       return;
     }
 
@@ -96,7 +125,7 @@ function createScheduler({ config, store, onStatus, logger = console }) {
       await sendRecords(batch, config);
       store.deleteByIds(pending.map((p) => p.id));
       detenerReintentos();
-      onStatus({
+      avisar({
         state: 'online',
         lastSuccessAt: new Date().toISOString(),
         pendingCount: 0,
@@ -104,7 +133,7 @@ function createScheduler({ config, store, onStatus, logger = console }) {
     } catch (error) {
       store.enqueue(snapshot);
       iniciarReintentos();
-      onStatus({
+      avisar({
         state: 'offline',
         pendingCount: store.count(),
         lastError: error.message,
@@ -115,10 +144,12 @@ function createScheduler({ config, store, onStatus, logger = console }) {
   function start() {
     enOrden(tick);
     timer = setInterval(() => enOrden(tick), config.collectIntervalMs);
+    vigilanciaTimer = setInterval(vigilarRed, VIGILANCIA_RED_MS);
   }
 
   function stop() {
     if (timer) clearInterval(timer);
+    if (vigilanciaTimer) clearInterval(vigilanciaTimer);
     detenerReintentos();
   }
 

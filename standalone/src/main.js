@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, Tray, Menu, BrowserWindow, ipcMain } = require('electron');
+const { app, Tray, Menu, BrowserWindow, ipcMain, net } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { version } = require('../package.json');
@@ -163,6 +163,9 @@ app.whenReady().then(() => {
   const scheduler = createScheduler({
     config,
     store,
+    // true si el equipo tiene alguna red activa (no garantiza internet: eso
+    // lo detecta el envio que falla).
+    hayRed: () => net.isOnline(),
     onStatus: (status) => {
       daemonStatus = { ...daemonStatus, ...status };
       refreshMenu();

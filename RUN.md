@@ -80,7 +80,8 @@ nueva cargada en la base aparece sin reinstalar. Las dos listas son independient
 el desplegable de Area muestra siempre todas las areas. Sin conexion al backend los
 menus quedan vacios y la ventana muestra un aviso.
 
-Sin internet, las lecturas se guardan en la cola cifrada y el icono se pone rojo. Mientras
+Cada 10 s la app pregunta a Windows si hay red: si se corta, el icono pasa a rojo de
+inmediato. Sin internet, las lecturas se guardan en la cola cifrada. Mientras
 tanto la app reintenta mandar la cola cada 30 s; apenas vuelve la conexion la envia,
 manda una lectura nueva y el icono vuelve a azul (no espera el ciclo de 15 min ni hay
 que reiniciar la app). Para que la ventana abra rapido, la
