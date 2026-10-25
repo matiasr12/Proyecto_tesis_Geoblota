@@ -78,7 +78,12 @@ En la ventana de registro, Faena y Area son menus desplegables que se llenan con
 `GET /api/areas` cada vez que se abre la ventana (y al volver a ella), asi que un area
 nueva cargada en la base aparece sin reinstalar. Las dos listas son independientes:
 el desplegable de Area muestra siempre todas las areas. Sin conexion al backend los
-menus quedan vacios y la ventana muestra un aviso. Para que la ventana abra rapido, la
+menus quedan vacios y la ventana muestra un aviso.
+
+Sin internet, las lecturas se guardan en la cola cifrada y el icono se pone rojo. Mientras
+tanto la app reintenta mandar la cola cada 30 s; apenas vuelve la conexion la envia,
+manda una lectura nueva y el icono vuelve a azul (no espera el ciclo de 15 min ni hay
+que reiniciar la app). Para que la ventana abra rapido, la
 primera recoleccion (PowerShell/netsh) arranca recien cuando la ventana ya esta en
 pantalla.
 
