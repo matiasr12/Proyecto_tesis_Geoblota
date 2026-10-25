@@ -1,6 +1,10 @@
 'use strict';
 
-const REQUEST_TIMEOUT_MS = 10000;
+// Con la base serverless "despertando" el backend puede tardar mas de 10 s en
+// responder; si la app corta antes, cree que fallo y reenvia lo que el
+// servidor ya guardo.
+const REQUEST_TIMEOUT_MS = 30000;
+const SALUD_TIMEOUT_MS = 10000;
 
 /**
  * Envia el lote de registros al backend via HTTPS, autenticado con JWT.
@@ -25,6 +29,20 @@ async function sendRecords(records, config) {
   }
 
   return true;
+}
+
+/**
+ * Pregunta al backend si esta vivo (GET /api/salud, no toca la base). Lanza
+ * si no responde 2xx: por ejemplo con el App Service detenido.
+ */
+async function checkServer(config) {
+  const response = await fetch(`${config.serverUrl}/api/salud`, {
+    headers: { Authorization: `Bearer ${config.jwtToken}` },
+    signal: AbortSignal.timeout(SALUD_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new Error(`El servidor respondio ${response.status} ${response.statusText}`);
+  }
 }
 
 /**
@@ -91,4 +109,4 @@ async function fetchTurnos(config) {
   return turnos;
 }
 
-module.exports = { sendRecords, registerEquipo, fetchAreas, fetchTurnos };
+module.exports = { sendRecords, registerEquipo, fetchAreas, fetchTurnos, checkServer };

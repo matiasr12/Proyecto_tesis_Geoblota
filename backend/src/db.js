@@ -96,13 +96,21 @@ async function insertRecords(config, records) {
       request.input('longitud', sql.Decimal(9, 6), record.longitud ?? null);
       request.input('precisionMetros', sql.Decimal(10, 2), record.precisionMetros ?? null);
       request.input('recordTimestamp', sql.DateTime2, new Date(record.timestamp));
+      // Si la app reintenta un envio que el servidor ya guardo (p. ej. la
+      // respuesta tardo mas que su timeout), la misma lectura llega dos
+      // veces: mismo equipo y misma hora de lectura. La segunda se ignora.
       const result = await request.query(`
-        INSERT INTO dbo.DeviceRecords
-          (EquipoId, Bssids, Ip, ConnectionType, Latitud, Longitud, PrecisionMetros, RecordTimestamp, ReceivedAt)
-        OUTPUT INSERTED.Id
-        VALUES
-          (@equipoId, @bssids, @ip, @connectionType, @latitud, @longitud, @precisionMetros, @recordTimestamp, SYSUTCDATETIME())
+        IF NOT EXISTS (
+          SELECT 1 FROM dbo.DeviceRecords
+          WHERE EquipoId = @equipoId AND RecordTimestamp = @recordTimestamp
+        )
+          INSERT INTO dbo.DeviceRecords
+            (EquipoId, Bssids, Ip, ConnectionType, Latitud, Longitud, PrecisionMetros, RecordTimestamp, ReceivedAt)
+          OUTPUT INSERTED.Id
+          VALUES
+            (@equipoId, @bssids, @ip, @connectionType, @latitud, @longitud, @precisionMetros, @recordTimestamp, SYSUTCDATETIME())
       `);
+      if (!result.recordset || result.recordset.length === 0) continue; // duplicada
       insertados.push({
         equipoId,
         deviceRecordId: result.recordset[0].Id,

@@ -146,7 +146,20 @@ ipcMain.handle('guardar-equipo-info', async (event, datos) => {
   return true;
 });
 
+// Una sola instancia: si se abre otra (inicio automatico + clic del usuario),
+// las dos mandarian la misma cola y duplicarian lecturas. La segunda se
+// cierra; la primera, si ya hay que registrar, muestra la ventana.
+const esInstanciaPrincipal = app.requestSingleInstanceLock();
+if (!esInstanciaPrincipal) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (registerWindow && !registerWindow.isDestroyed()) registerWindow.focus();
+  });
+}
+
 app.whenReady().then(() => {
+  if (!esInstanciaPrincipal) return;
   if (process.platform === 'darwin' && app.dock) {
     app.dock.hide();
   }

@@ -80,8 +80,10 @@ nueva cargada en la base aparece sin reinstalar. Las dos listas son independient
 el desplegable de Area muestra siempre todas las areas. Sin conexion al backend los
 menus quedan vacios y la ventana muestra un aviso.
 
-Cada 10 s la app pregunta a Windows si hay red: si se corta, el icono pasa a rojo de
-inmediato. Sin internet, las lecturas se guardan en la cola cifrada. Mientras
+Cada 10 s la app pregunta a Windows si hay red, y cada 60 s pregunta al backend si
+responde (`/api/salud`): si falla cualquiera, el icono pasa a rojo. La app es de
+instancia unica (abrirla dos veces no duplica envios) y espera hasta 30 s la
+respuesta de cada envio. Sin internet, las lecturas se guardan en la cola cifrada. Mientras
 tanto la app reintenta mandar la cola cada 30 s; apenas vuelve la conexion la envia,
 manda una lectura nueva y el icono vuelve a azul (no espera el ciclo de 15 min ni hay
 que reiniciar la app). Para que la ventana abra rapido, la
@@ -165,6 +167,11 @@ Rutas de lectura (mismo token):
   La ubicacion es el promedio de los routers de `dbo.BssidsArea` que ve la lectura
   (con coordenadas); si no ve ninguno, la que mando el PC (Windows).
 - `GET /api/areas`: lista `{ faena, area }` para los desplegables del registro.
+- `GET /api/salud`: responde `{ ok: true }` sin tocar la base; la app lo consulta cada
+  minuto para saber si el backend esta vivo.
+
+`POST /api/device-records` ignora una lectura que ya existe (mismo equipo y misma
+hora de lectura): asi un reintento de la app no la duplica.
 
 ### Areas y poligonos (Google Earth)
 

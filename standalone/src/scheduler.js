@@ -1,7 +1,7 @@
 'use strict';
 
 const { collectSnapshot, getComputerName } = require('./collectors');
-const { sendRecords, registerEquipo } = require('./api/client');
+const { sendRecords, registerEquipo, checkServer } = require('./api/client');
 const { readPendingEquipoInfo, markEquipoInfoSent } = require('./equipoRegistration');
 
 /**
@@ -34,6 +34,10 @@ const REINTENTO_SIN_CONEXION_MS = 30 * 1000;
 // apenas se corta (sin esperar a que falle un envio) y reenviar apenas vuelve.
 const VIGILANCIA_RED_MS = 10 * 1000;
 
+// Con red, cada cuanto se pregunta al backend si esta vivo (por ejemplo, si
+// se detuvo el App Service), para no seguir en azul hasta el proximo tick.
+const VERIFICACION_SERVIDOR_MS = 60 * 1000;
+
 /**
  * Igual que el scheduler del daemon, pero en vez de escribir status.json a
  * disco llama a onStatus(status) directo: todo corre en el mismo proceso
@@ -43,6 +47,7 @@ function createScheduler({ config, store, onStatus, hayRed = () => true, logger 
   let timer = null;
   let reintentoTimer = null;
   let vigilanciaTimer = null;
+  let servidorTimer = null;
   let estado = null;
   let redAnterior = true;
   const avisar = (status) => {
@@ -77,6 +82,13 @@ function createScheduler({ config, store, onStatus, hayRed = () => true, logger 
     if (estado !== 'offline' || !hayRed()) return;
     const pending = store.getAll();
     if (pending.length === 0) {
+      // Sin cola que probar: antes de juntar una lectura nueva se confirma que
+      // el backend responde, si no cada reintento agregaria una a la cola.
+      try {
+        await checkServer(config);
+      } catch {
+        return;
+      }
       detenerReintentos();
       await tick();
       return;
@@ -104,6 +116,17 @@ function createScheduler({ config, store, onStatus, hayRed = () => true, logger 
     }
     if (red && !redAnterior) enOrden(reintentar);
     redAnterior = red;
+  }
+
+  /** Con red y en azul: si el backend no responde, pasa a rojo. */
+  async function verificarServidor() {
+    if (estado !== 'online') return;
+    try {
+      await checkServer(config);
+    } catch (error) {
+      avisar({ state: 'offline', pendingCount: store.count(), lastError: error.message });
+      iniciarReintentos();
+    }
   }
 
   async function tick() {
@@ -145,11 +168,13 @@ function createScheduler({ config, store, onStatus, hayRed = () => true, logger 
     enOrden(tick);
     timer = setInterval(() => enOrden(tick), config.collectIntervalMs);
     vigilanciaTimer = setInterval(vigilarRed, VIGILANCIA_RED_MS);
+    servidorTimer = setInterval(() => enOrden(verificarServidor), VERIFICACION_SERVIDOR_MS);
   }
 
   function stop() {
     if (timer) clearInterval(timer);
     if (vigilanciaTimer) clearInterval(vigilanciaTimer);
+    if (servidorTimer) clearInterval(servidorTimer);
     detenerReintentos();
   }
 

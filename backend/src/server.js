@@ -131,12 +131,20 @@ async function handleListTurnos(req, res) {
   }
 }
 
+// La app la consulta cada minuto para saber si el backend esta vivo (p. ej.
+// si se detuvo el App Service). No toca la base de datos: no la despierta ni
+// gasta cuota del plan serverless.
+function handleSalud(req, res) {
+  res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true }));
+}
+
 const ROUTES = {
   POST: {
     '/api/device-records': handleDeviceRecords,
     '/api/equipos/registro': handleEquipoRegistro,
   },
   GET: {
+    '/api/salud': handleSalud,
     '/api/equipos': handleListEquipos,
     '/api/areas': handleListAreas,
     '/api/turnos': handleListTurnos,
