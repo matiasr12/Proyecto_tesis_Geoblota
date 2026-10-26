@@ -58,7 +58,7 @@ servicio de Windows a nivel sistema); es un build aparte, self-contained.
 ```bash
 cd standalone
 npm install
-cp src/secrets.example.js src/secrets.js   # completar SERVER_URL y JWT_TOKEN (nunca se commitea)
+cp src/secrets.example.js src/secrets.js   # completar SERVER_URL (nunca se commitea; sin credenciales)
 npm run build:win                          # genera standalone/dist/TesisInventario Setup <version>.exe
 ```
 
@@ -67,10 +67,15 @@ carpeta, crea acceso directo y entrada en "Agregar o quitar programas"). Al prim
 inicio de sesion arranca solo (registrado via `app.setLoginItemSettings`, sin scripts
 de autostart manuales) y abre la ventana de registro de equipo si es la primera vez.
 
-La URL del backend y el token van fijos en `standalone/src/secrets.js` (nunca se
-commitea, el repo es publico) y quedan compilados dentro del `.exe` — quien instala no
-completa nada. Si cambia el backend o el `JWT_SECRET`, hay que actualizar
-`secrets.js` y volver a generar el instalador. `GOOGLE_GEOLOCATION_API_KEY` es
+La URL del backend va fija en `standalone/src/secrets.js` (nunca se commitea, el repo
+es publico) y queda dentro del `.exe`. **El instalador no lleva ninguna credencial**:
+al registrarse por primera vez, el formulario pide un **codigo de enrolamiento** que
+entrega TI; con el, el backend devuelve el **token propio del equipo**
+(`POST /api/equipos/enrolar`), que la app guarda cifrado con DPAPI
+(`userData/device-token.bin`). Ese token solo sirve para enviar las lecturas y el
+registro de ese mismo equipo; no permite leer la flota. Hasta enrolarse, la app junta
+lecturas en la cola (icono rojo, "Sin registrar") y las envia al enrolarse. Una
+instalacion anterior (sin token) abre el formulario para pedir el codigo. `GOOGLE_GEOLOCATION_API_KEY` es
 opcional: la ubicacion se pide primero al servicio de ubicacion de Windows y la API de
 Google solo se usa como respaldo si hay key.
 
@@ -152,15 +157,27 @@ bash scripts/macos/install-launchagent.sh             # el tray, sin sudo
 
 ## Backend (Azure)
 
-El codigo vive en `backend/`. Recibe `POST /api/device-records` con
-`Authorization: Bearer <JWT_TOKEN>` y guarda los registros en Azure SQL Database.
-Tambien recibe `POST /api/equipos/registro` (mismo token) con los datos de
+El codigo vive en `backend/`. Hay tres credenciales distintas:
+
+| Credencial | Quien la usa | Rutas |
+|---|---|---|
+| `JWT_SECRET` (Bearer) | Panel web (`DAEMON_API_TOKEN` del panel) | `GET /api/equipos` (lectura de toda la flota). Rechazada en las rutas de equipos (403). |
+| Token propio del equipo (Bearer `<nombre base64url>.<HMAC-SHA256 con DEVICE_SECRET>`) | App de escritorio, tras enrolarse | `POST /api/device-records` y `POST /api/equipos/registro` **solo con su propio `computerName`** (otro nombre: 403). No lee la flota (401). |
+| `ENROLLMENT_CODE` (codigo de TI) | Persona que instala la app | `POST /api/equipos/enrolar` (devuelve el token del equipo) y header `X-Codigo-Enrolamiento` para `GET /api/areas` y `/api/turnos` antes de enrolarse. |
+
+`GET /api/salud` es publica (no devuelve datos). Sin `DEVICE_SECRET` o
+`ENROLLMENT_CODE` configurados, las rutas de equipos y el enrolamiento responden 503
+(falla cerrado) y el panel sigue funcionando. Pruebas de regresion: `cd backend && npm test`
+(base simulada, sin Azure).
+
+Recibe `POST /api/device-records` y guarda los registros en Azure SQL Database.
+Tambien recibe `POST /api/equipos/registro` con los datos de
 Faena/Area/Persona/Equipo que manda el tray una sola vez, y arma/actualiza esas
 tablas relacionadas (`Faenas`, `Areas`, `Personal`, `Equipos`). El area se busca por
 nombre en cualquier faena (solo se crea si no existe en ninguna), asi no se duplican
 areas cuando la persona elige una faena y un area de otra faena.
 
-Rutas de lectura (mismo token):
+Rutas de lectura:
 
 - `GET /api/equipos`: un renglon por equipo con su persona/area/faena, ultima
   ubicacion y `alerta` si esa ubicacion cae fuera del poligono del area asignada.
@@ -198,9 +215,13 @@ el "Editor de consultas" de Azure Portal (dentro del recurso de la base SQL) o d
 Azure Data Studio / SSMS.
 
 En Azure App Service las variables (`DB_SERVER`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`,
-`JWT_SECRET`) se cargan en **Configuracion > Variables de entorno**, no en un `.env`
-(ese archivo es solo para correrlo en la maquina local). El `JWT_SECRET` del backend
-tiene que ser el mismo valor que `JWT_TOKEN` en `daemon/.env`.
+`JWT_SECRET`, `DEVICE_SECRET` de 32+ caracteres y `ENROLLMENT_CODE` de 12+) se cargan
+en **Configuracion > Variables de entorno**, no en un `.env` (ese archivo es solo para
+correrlo en la maquina local). El `JWT_SECRET` debe ser el mismo valor que
+`DAEMON_API_TOKEN` del panel web. Si se filtra el `ENROLLMENT_CODE`, se cambia sin
+afectar a los equipos ya enrolados; cambiar `DEVICE_SECRET` invalida todos los tokens
+de equipo (hay que volver a enrolar). El modo servicio (`daemon/`) todavia usa el
+secreto compartido y no funciona con estas rutas hasta adaptarlo.
 
 Deploy: GitHub + Deployment Center de Azure (build y despliegue automatico en cada
 push a `main`).

@@ -4,10 +4,10 @@ const { app, Tray, Menu, BrowserWindow, ipcMain, net } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { version } = require('../package.json');
-const { loadConfig } = require('./config');
+const { loadConfig, guardarTokenEquipo } = require('./config');
 const { PendingRecordsStore } = require('./storage/db');
 const { createScheduler } = require('./scheduler');
-const { registerEquipo, fetchAreas, fetchTurnos } = require('./api/client');
+const { registerEquipo, enrolarEquipo, fetchAreas, fetchTurnos } = require('./api/client');
 const { markEquipoInfoSent } = require('./equipoRegistration');
 const { getComputerName } = require('./collectors');
 
@@ -18,6 +18,7 @@ const STATE_LABELS = {
   online: 'Conectado',
   offline: 'Sin conexion (datos en espera local)',
   error: 'Error al recolectar datos',
+  sin_enrolar: 'Sin registrar: falta el codigo de enrolamiento de TI',
 };
 
 const ICON_ONLINE_PATH = path.join(__dirname, '..', 'assets', 'tray-icon.png');
@@ -26,6 +27,7 @@ const ICON_OFFLINE_PATH = path.join(__dirname, '..', 'assets', 'tray-icon-offlin
 let tray = null;
 let registerWindow = null;
 let config = null;
+let scheduler = null;
 let daemonStatus = { state: null, lastSuccessAt: null, pendingCount: 0, lastError: null };
 
 function equipoInfoPath() {
@@ -73,7 +75,8 @@ function buildMenuTemplate() {
 function refreshMenu() {
   if (!tray) return;
   tray.setContextMenu(Menu.buildFromTemplate(buildMenuTemplate()));
-  tray.setImage(daemonStatus.state === 'offline' ? ICON_OFFLINE_PATH : ICON_ONLINE_PATH);
+  const enRojo = daemonStatus.state === 'offline' || daemonStatus.state === 'sin_enrolar';
+  tray.setImage(enRojo ? ICON_OFFLINE_PATH : ICON_ONLINE_PATH);
 }
 
 /**
@@ -89,7 +92,7 @@ function openRegisterWindow() {
 
   registerWindow = new BrowserWindow({
     width: 470,
-    height: 730,
+    height: 810,
     resizable: false,
     autoHideMenuBar: true,
     // Se muestra recien cuando ya esta pintada, en vez de un recuadro en
@@ -110,24 +113,39 @@ function openRegisterWindow() {
 
 ipcMain.handle('cargar-equipo-info', () => readEquipoInfo());
 
-// Sin conexion devuelve [] y el formulario muestra el aviso.
-ipcMain.handle('listar-areas', async () => {
+// Si el equipo ya tiene su token, el formulario no vuelve a pedir el codigo.
+ipcMain.handle('esta-enrolado', () => Boolean(config.deviceToken));
+
+// Sin conexion (o sin codigo todavia) devuelve [] y el formulario muestra el
+// aviso. codigo es el de enrolamiento que escribio la persona, si aun no hay token.
+ipcMain.handle('listar-areas', async (event, codigo) => {
   try {
-    return await fetchAreas(config);
+    return await fetchAreas(config, codigo);
   } catch {
     return [];
   }
 });
 
-ipcMain.handle('listar-turnos', async () => {
+ipcMain.handle('listar-turnos', async (event, codigo) => {
   try {
-    return await fetchTurnos(config);
+    return await fetchTurnos(config, codigo);
   } catch {
     return [];
   }
 });
 
-ipcMain.handle('guardar-equipo-info', async (event, datos) => {
+ipcMain.handle('guardar-equipo-info', async (event, { codigo, ...datos }) => {
+  // Primera vez: con el codigo de TI se obtiene el token propio del equipo.
+  // Requiere conexion; si falla, el error se muestra en el formulario y no se
+  // guarda nada. El codigo no se guarda en disco.
+  if (!config.deviceToken) {
+    if (!codigo) throw new Error('Falta el codigo de enrolamiento que entrega TI.');
+    const { computerName } = await getComputerName();
+    const token = await enrolarEquipo({ computerName, codigo }, config);
+    guardarTokenEquipo(config.dataDir, token);
+    config.deviceToken = token;
+  }
+
   fs.mkdirSync(config.dataDir, { recursive: true });
   fs.writeFileSync(equipoInfoPath(), JSON.stringify({ ...datos, sent: false }, null, 2), 'utf8');
 
@@ -142,6 +160,8 @@ ipcMain.handle('guardar-equipo-info', async (event, datos) => {
   } catch {
     // reintenta el scheduler
   }
+  // Manda de inmediato lo que quedo en cola mientras no habia token.
+  if (scheduler) scheduler.enviarAhora();
 
   return true;
 });
@@ -173,7 +193,7 @@ app.whenReady().then(() => {
   tray.setToolTip('Seguimiento de ubicacion - control de inventario');
   refreshMenu();
 
-  const scheduler = createScheduler({
+  scheduler = createScheduler({
     config,
     store,
     // true si el equipo tiene alguna red activa (no garantiza internet: eso
@@ -187,7 +207,9 @@ app.whenReady().then(() => {
   // La primera recoleccion lanza varios PowerShell/netsh a la vez, que
   // compiten con la ventana de registro y la hacen tardar en aparecer. Si hay
   // que mostrarla, la recoleccion arranca recien cuando ya esta en pantalla.
-  if (!readEquipoInfo()) {
+  // Tambien se abre si ya hay datos pero falta el token (instalacion anterior
+  // a los tokens por equipo): hay que ingresar el codigo de TI.
+  if (!readEquipoInfo() || !config.deviceToken) {
     openRegisterWindow();
     registerWindow.once('ready-to-show', () => scheduler.start());
   } else {

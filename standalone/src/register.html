@@ -139,6 +139,12 @@
     </div>
 
     <form id="form">
+      <div id="seccion-codigo" hidden>
+        <div class="section-title">Enrolamiento</div>
+        <label for="codigo">Código de enrolamiento (lo entrega TI)</label>
+        <input id="codigo" autocomplete="off" spellcheck="false" />
+      </div>
+
       <div class="section-title">Ubicación operacional</div>
       <div class="field-row">
         <div>
@@ -186,9 +192,15 @@
     const faenaSelect = document.getElementById('faena');
     const areaSelect = document.getElementById('area');
     const turnoSelect = document.getElementById('turno');
+    const seccionCodigo = document.getElementById('seccion-codigo');
+    const codigoInput = document.getElementById('codigo');
     let areasDisponibles = [];
     let turnosDisponibles = [];
     let guardado = null;
+    // Sin token propio todavia: se pide el codigo de TI y con el se cargan
+    // las listas y se enrola el equipo al guardar.
+    // null hasta saberlo (la ventana pide las listas al tomar foco).
+    let enrolado = null;
 
     // Orden alfabetico en español, sin distinguir mayusculas/acentos y
     // entendiendo numeros (asi "4x3" va antes que "14x14").
@@ -244,8 +256,14 @@
     // ventana), se reutiliza en vez de lanzar otra.
     let cargaEnCurso = null;
     function cargarAreas() {
+      if (enrolado === null) return Promise.resolve();
       if (!cargaEnCurso) {
-        cargaEnCurso = Promise.all([window.equipoAPI.listarAreas(), window.equipoAPI.listarTurnos()])
+        const codigo = enrolado ? undefined : codigoInput.value.trim();
+        if (!enrolado && !codigo) {
+          mostrarMensaje('Ingresa el código de enrolamiento que te entregó TI para cargar las áreas y los turnos.');
+          return Promise.resolve();
+        }
+        cargaEnCurso = Promise.all([window.equipoAPI.listarAreas(codigo), window.equipoAPI.listarTurnos(codigo)])
           .then(([areas, turnos]) => {
             areasDisponibles = areas;
             turnosDisponibles = turnos;
@@ -253,7 +271,9 @@
             actualizarTurnos();
             mostrarMensaje(
               areasDisponibles.length === 0
-                ? 'No se pudieron cargar las áreas disponibles. Revisa la conexión a internet y vuelve a abrir esta ventana.'
+                ? enrolado
+                  ? 'No se pudieron cargar las áreas disponibles. Revisa la conexión a internet y vuelve a abrir esta ventana.'
+                  : 'No se pudieron cargar las áreas. Revisa el código de enrolamiento y la conexión a internet.'
                 : ''
             );
           })
@@ -265,8 +285,13 @@
     }
 
     window.addEventListener('focus', cargarAreas);
+    // Al escribir el codigo se recargan las listas (despues de la carga en curso).
+    codigoInput.addEventListener('change', () => (cargaEnCurso || Promise.resolve()).finally(cargarAreas));
 
     window.equipoAPI.cargar().then(async (datos) => {
+      enrolado = await window.equipoAPI.estaEnrolado();
+      seccionCodigo.hidden = enrolado;
+      codigoInput.required = !enrolado;
       guardado = datos;
       if (datos) {
         for (const campo of ['rut', 'nombre', 'apellido', 'codigoActivo']) {
@@ -298,12 +323,14 @@
       };
       // Sin turno elegido no se manda el campo: el backend no toca el turno.
       if (turnoSelect.value) datos.turno = turnoSelect.value;
+      if (!enrolado) datos.codigo = codigoInput.value.trim();
 
       try {
         await window.equipoAPI.guardar(datos);
         window.close();
       } catch (error) {
-        mensaje.textContent = 'No se pudo guardar: ' + error.message;
+        // Electron antepone "Error invoking remote method ...: Error: ".
+        mensaje.textContent = 'No se pudo guardar: ' + error.message.replace(/^.*Error: /, '');
         mensaje.classList.add('visible');
         boton.disabled = false;
       }

@@ -1,7 +1,7 @@
 'use strict';
 
 const http = require('http');
-const { isAuthorized } = require('./auth');
+const { isAuthorized, deviceTokenFor, getDeviceName, isValidEnrollmentCode } = require('./auth');
 const { insertRecords, upsertEquipoRegistro, getEquiposConUltimaUbicacion, getAreas, getTurnos } = require('./db');
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MB, de sobra para un lote de registros
@@ -73,6 +73,11 @@ async function handleDeviceRecords(req, res) {
     res.writeHead(400).end();
     return;
   }
+  // Un equipo solo puede mandar lecturas a su propio nombre.
+  if (payload.records.some((record) => record.computerName !== req.equipo)) {
+    res.writeHead(403).end();
+    return;
+  }
 
   try {
     await insertRecords(req.config, payload.records);
@@ -89,6 +94,11 @@ async function handleEquipoRegistro(req, res) {
 
   if (!isValidRegistro(payload)) {
     res.writeHead(400).end();
+    return;
+  }
+  // Un equipo solo puede registrarse a si mismo.
+  if (payload.computerName !== req.equipo) {
+    res.writeHead(403).end();
     return;
   }
 
@@ -138,25 +148,82 @@ function handleSalud(req, res) {
   res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true }));
 }
 
+const COMPUTER_NAME_VALIDO = /^[^\u0000-\u001f\u007f]{1,64}$/;
+
+/**
+ * Enrolamiento: la app manda su ComputerName y el codigo que TI le dio al
+ * instalarla, y recibe su token propio. El instalador no lleva ningun secreto.
+ */
+async function handleEnrolar(req, res) {
+  if (!req.config.deviceSecret || !req.config.enrollmentCode) {
+    res.writeHead(503).end();
+    return;
+  }
+  const payload = await readBody(req, res);
+  if (payload === null) return;
+
+  if (!payload || typeof payload.computerName !== 'string' || !COMPUTER_NAME_VALIDO.test(payload.computerName)) {
+    res.writeHead(400).end();
+    return;
+  }
+  if (!isValidEnrollmentCode(payload.codigo, req.config.enrollmentCode)) {
+    res.writeHead(401).end();
+    return;
+  }
+  const token = deviceTokenFor(payload.computerName, req.config.deviceSecret);
+  res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ token }));
+}
+
+/**
+ * Tipos de permiso por ruta:
+ * - public: sin credencial (no devuelve datos).
+ * - admin: credencial del panel (JWT_SECRET); lee toda la flota.
+ * - device: token propio del equipo; el handler solo acepta su ComputerName.
+ * - catalog: listas del formulario (areas, turnos): panel, equipo enrolado o
+ *   el codigo de enrolamiento (la app las necesita antes de tener token).
+ */
 const ROUTES = {
   POST: {
-    '/api/device-records': handleDeviceRecords,
-    '/api/equipos/registro': handleEquipoRegistro,
+    '/api/equipos/enrolar': { handler: handleEnrolar, permiso: 'public' },
+    '/api/device-records': { handler: handleDeviceRecords, permiso: 'device' },
+    '/api/equipos/registro': { handler: handleEquipoRegistro, permiso: 'device' },
   },
   GET: {
-    '/api/salud': handleSalud,
-    '/api/equipos': handleListEquipos,
-    '/api/areas': handleListAreas,
-    '/api/turnos': handleListTurnos,
+    '/api/salud': { handler: handleSalud, permiso: 'public' },
+    '/api/equipos': { handler: handleListEquipos, permiso: 'admin' },
+    '/api/areas': { handler: handleListAreas, permiso: 'catalog' },
+    '/api/turnos': { handler: handleListTurnos, permiso: 'catalog' },
   },
 };
+
+/** Devuelve el status de rechazo, o null si el request puede seguir. */
+function autorizar(req, permiso, config) {
+  if (permiso === 'public') return null;
+  if (isAuthorized(req, config.jwtSecret)) return permiso === 'device' ? 403 : null;
+  if (permiso === 'admin') return 401;
+
+  if (config.deviceSecret) {
+    const equipo = getDeviceName(req, config.deviceSecret);
+    if (equipo) {
+      req.equipo = equipo;
+      return null;
+    }
+  } else if (permiso === 'device') {
+    return 503;
+  }
+  if (permiso === 'catalog' && config.enrollmentCode &&
+      isValidEnrollmentCode(req.headers['x-codigo-enrolamiento'], config.enrollmentCode)) {
+    return null;
+  }
+  return 401;
+}
 
 function createServer(config) {
   return http.createServer((req, res) => {
     // CORS: el panel web que consume esta API corre en otro origen (localhost
     // en desarrollo, o el dominio donde se despliegue despues).
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Codigo-Enrolamiento');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
 
     if (req.method === 'OPTIONS') {
@@ -164,19 +231,20 @@ function createServer(config) {
       return;
     }
 
-    const handler = ROUTES[req.method] && ROUTES[req.method][req.url];
-    if (!handler) {
+    const route = ROUTES[req.method] && ROUTES[req.method][req.url];
+    if (!route) {
       res.writeHead(404).end();
       return;
     }
 
-    if (!isAuthorized(req, config.jwtSecret)) {
-      res.writeHead(401).end();
+    const rechazo = autorizar(req, route.permiso, config);
+    if (rechazo) {
+      res.writeHead(rechazo).end();
       return;
     }
 
     req.config = config;
-    handler(req, res);
+    route.handler(req, res);
   });
 }
 

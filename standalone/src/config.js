@@ -3,13 +3,14 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { app } = require('electron');
-const { SERVER_URL, JWT_TOKEN, GOOGLE_GEOLOCATION_API_KEY } = require('./secrets');
+const { app, safeStorage } = require('electron');
+const { SERVER_URL, GOOGLE_GEOLOCATION_API_KEY } = require('./secrets');
 
 const RECORDS_PATH = '/api/device-records';
 const EQUIPO_REGISTRO_PATH = '/api/equipos/registro';
 const AREAS_PATH = '/api/areas';
 const TURNOS_PATH = '/api/turnos';
+const ENROLAR_PATH = '/api/equipos/enrolar';
 const COLLECT_INTERVAL_MS = 15 * 60 * 1000;
 
 /**
@@ -28,12 +29,39 @@ function getOrCreateEncryptionKey(dataDir) {
   }
 }
 
+/**
+ * Token propio del equipo, que entrega el backend al enrolarse con el codigo
+ * de TI. El instalador no trae ningun secreto: el token se guarda aca,
+ * cifrado con la proteccion de Windows (DPAPI, via safeStorage) cuando esta
+ * disponible.
+ */
+function tokenPath(dataDir) {
+  return path.join(dataDir, 'device-token.bin');
+}
+
+function leerTokenEquipo(dataDir) {
+  try {
+    const contenido = fs.readFileSync(tokenPath(dataDir));
+    return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(contenido) : contenido.toString('utf8');
+  } catch {
+    return null;
+  }
+}
+
+function guardarTokenEquipo(dataDir, token) {
+  fs.mkdirSync(dataDir, { recursive: true });
+  const contenido = safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(token) : Buffer.from(token, 'utf8');
+  fs.writeFileSync(tokenPath(dataDir), contenido);
+}
+
 function loadConfig() {
   const dataDir = app.getPath('userData');
 
   return {
     serverUrl: SERVER_URL,
-    jwtToken: JWT_TOKEN,
+    // null hasta que el equipo se enrola con el codigo de TI.
+    deviceToken: leerTokenEquipo(dataDir),
+    enrolarPath: ENROLAR_PATH,
     recordsPath: RECORDS_PATH,
     equipoRegistroPath: EQUIPO_REGISTRO_PATH,
     areasPath: AREAS_PATH,
@@ -45,4 +73,4 @@ function loadConfig() {
   };
 }
 
-module.exports = { loadConfig };
+module.exports = { loadConfig, guardarTokenEquipo };

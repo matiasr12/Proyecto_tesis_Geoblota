@@ -14,7 +14,7 @@ const { readPendingEquipoInfo, markEquipoInfoSent } = require('./equipoRegistrat
  */
 async function trySendPendingEquipoInfo(config, dataDir, logger) {
   const pending = readPendingEquipoInfo(dataDir);
-  if (!pending) return;
+  if (!pending || !config.deviceToken) return;
 
   try {
     const { computerName } = await getComputerName();
@@ -110,7 +110,7 @@ function createScheduler({ config, store, onStatus, hayRed = () => true, logger 
    */
   function vigilarRed() {
     const red = hayRed();
-    if (!red && estado !== 'offline') {
+    if (!red && estado !== 'offline' && estado !== 'sin_enrolar') {
       avisar({ state: 'offline', pendingCount: store.count(), lastError: 'Sin conexion de red' });
       iniciarReintentos();
     }
@@ -155,6 +155,12 @@ function createScheduler({ config, store, onStatus, hayRed = () => true, logger 
       });
     } catch (error) {
       store.enqueue(snapshot);
+      // Sin token todavia: no es falta de conexion, asi que no se reintenta
+      // cada 30 s; la lectura queda en la cola hasta que el equipo se enrole.
+      if (error.code === 'SIN_ENROLAR') {
+        avisar({ state: 'sin_enrolar', pendingCount: store.count(), lastError: error.message });
+        return;
+      }
       iniciarReintentos();
       avisar({
         state: 'offline',
@@ -162,6 +168,11 @@ function createScheduler({ config, store, onStatus, hayRed = () => true, logger 
         lastError: error.message,
       });
     }
+  }
+
+  /** Recien enrolado (o registro guardado): manda la cola y una lectura ya. */
+  function enviarAhora() {
+    return enOrden(tick);
   }
 
   function start() {
@@ -178,7 +189,7 @@ function createScheduler({ config, store, onStatus, hayRed = () => true, logger 
     detenerReintentos();
   }
 
-  return { start, stop, tick };
+  return { start, stop, tick, enviarAhora };
 }
 
 module.exports = { createScheduler };
