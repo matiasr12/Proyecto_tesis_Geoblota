@@ -51,9 +51,4 @@ function getDeviceName(req, deviceSecret) {
   return safeEqual(token, deviceTokenFor(computerName, deviceSecret)) ? computerName : null;
 }
 
-/** El codigo que TI entrega al instalar, comparado en tiempo constante. */
-function isValidEnrollmentCode(codigo, enrollmentCode) {
-  return typeof codigo === 'string' && codigo.length > 0 && safeEqual(codigo, enrollmentCode);
-}
-
-module.exports = { isAuthorized, deviceTokenFor, getDeviceName, isValidEnrollmentCode };
+module.exports = { isAuthorized, deviceTokenFor, getDeviceName };

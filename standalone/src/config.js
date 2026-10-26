@@ -30,8 +30,8 @@ function getOrCreateEncryptionKey(dataDir) {
 }
 
 /**
- * Token propio del equipo, que entrega el backend al enrolarse con el codigo
- * de TI. El instalador no trae ningun secreto: el token se guarda aca,
+ * Token propio del equipo, que entrega el backend la primera vez que se
+ * conecta (la app se enrola sola). El instalador no trae ningun secreto: se guarda aca,
  * cifrado con la proteccion de Windows (DPAPI, via safeStorage) cuando esta
  * disponible.
  */
@@ -59,7 +59,7 @@ function loadConfig() {
 
   return {
     serverUrl: SERVER_URL,
-    // null hasta que el equipo se enrola con el codigo de TI.
+    // null hasta que el equipo se enrola (sola, al primer envio).
     deviceToken: leerTokenEquipo(dataDir),
     enrolarPath: ENROLAR_PATH,
     recordsPath: RECORDS_PATH,

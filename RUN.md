@@ -69,13 +69,12 @@ de autostart manuales) y abre la ventana de registro de equipo si es la primera 
 
 La URL del backend va fija en `standalone/src/secrets.js` (nunca se commitea, el repo
 es publico) y queda dentro del `.exe`. **El instalador no lleva ninguna credencial**:
-al registrarse por primera vez, el formulario pide un **codigo de enrolamiento** que
-entrega TI; con el, el backend devuelve el **token propio del equipo**
-(`POST /api/equipos/enrolar`), que la app guarda cifrado con DPAPI
-(`userData/device-token.bin`). Ese token solo sirve para enviar las lecturas y el
-registro de ese mismo equipo; no permite leer la flota. Hasta enrolarse, la app junta
-lecturas en la cola (icono rojo, "Sin registrar") y las envia al enrolarse. Una
-instalacion anterior (sin token) abre el formulario para pedir el codigo. `GOOGLE_GEOLOCATION_API_KEY` es
+la primera vez que se conecta, la app pide sola al backend su **token propio**
+(`POST /api/equipos/enrolar`, sin codigo ni nada que escribir) y lo guarda cifrado con
+DPAPI (`userData/device-token.bin`). Ese token solo sirve para enviar las lecturas y el
+registro de ese mismo equipo; no permite leer la flota. Sin internet, la app junta
+lecturas en la cola (icono rojo) y se enrola al volver la conexion. Una instalacion
+anterior (sin token) se enrola sola igual. `GOOGLE_GEOLOCATION_API_KEY` es
 opcional: la ubicacion se pide primero al servicio de ubicacion de Windows y la API de
 Google solo se usa como respaldo si hay key.
 
@@ -157,16 +156,17 @@ bash scripts/macos/install-launchagent.sh             # el tray, sin sudo
 
 ## Backend (Azure)
 
-El codigo vive en `backend/`. Hay tres credenciales distintas:
+El codigo vive en `backend/`. Hay dos credenciales distintas:
 
 | Credencial | Quien la usa | Rutas |
 |---|---|---|
 | `JWT_SECRET` (Bearer) | Panel web (`DAEMON_API_TOKEN` del panel) | `GET /api/equipos` (lectura de toda la flota). Rechazada en las rutas de equipos (403). |
 | Token propio del equipo (Bearer `<nombre base64url>.<HMAC-SHA256 con DEVICE_SECRET>`) | App de escritorio, tras enrolarse | `POST /api/device-records` y `POST /api/equipos/registro` **solo con su propio `computerName`** (otro nombre: 403). No lee la flota (401). |
-| `ENROLLMENT_CODE` (codigo de TI) | Persona que instala la app | `POST /api/equipos/enrolar` (devuelve el token del equipo) y header `X-Codigo-Enrolamiento` para `GET /api/areas` y `/api/turnos` antes de enrolarse. |
 
-`GET /api/salud` es publica (no devuelve datos). Sin `DEVICE_SECRET` o
-`ENROLLMENT_CODE` configurados, las rutas de equipos y el enrolamiento responden 503
+`POST /api/equipos/enrolar` es publica: recibe `{ computerName }` y devuelve el token de
+ese nombre. `GET /api/areas` y `/api/turnos` aceptan el panel o un token de equipo.
+`GET /api/salud` es publica (no devuelve datos). Sin `DEVICE_SECRET`
+configurado, las rutas de equipos y el enrolamiento responden 503
 (falla cerrado) y el panel sigue funcionando. Pruebas de regresion: `cd backend && npm test`
 (base simulada, sin Azure).
 
@@ -215,12 +215,11 @@ el "Editor de consultas" de Azure Portal (dentro del recurso de la base SQL) o d
 Azure Data Studio / SSMS.
 
 En Azure App Service las variables (`DB_SERVER`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`,
-`JWT_SECRET`, `DEVICE_SECRET` de 32+ caracteres y `ENROLLMENT_CODE` de 12+) se cargan
+`JWT_SECRET` y `DEVICE_SECRET` de 32+ caracteres) se cargan
 en **Configuracion > Variables de entorno**, no en un `.env` (ese archivo es solo para
 correrlo en la maquina local). El `JWT_SECRET` debe ser el mismo valor que
-`DAEMON_API_TOKEN` del panel web. Si se filtra el `ENROLLMENT_CODE`, se cambia sin
-afectar a los equipos ya enrolados; cambiar `DEVICE_SECRET` invalida todos los tokens
-de equipo (hay que volver a enrolar). El modo servicio (`daemon/`) todavia usa el
+`DAEMON_API_TOKEN` del panel web. Cambiar `DEVICE_SECRET` invalida todos los tokens
+de equipo (las apps se vuelven a enrolar solas solo si se borra `device-token.bin`). El modo servicio (`daemon/`) todavia usa el
 secreto compartido y no funciona con estas rutas hasta adaptarlo.
 
 Deploy: GitHub + Deployment Center de Azure (build y despliegue automatico en cada

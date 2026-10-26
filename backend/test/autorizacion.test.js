@@ -25,7 +25,6 @@ const { deviceTokenFor } = require('../src/auth');
 const CONFIG = {
   jwtSecret: 'secreto-del-panel-solo-para-pruebas-0123456789',
   deviceSecret: 'secreto-de-equipos-solo-para-pruebas-0123456789',
-  enrollmentCode: 'CODIGO-TI-PRUEBA-2026',
 };
 
 async function conServidor(config, fn) {
@@ -39,10 +38,9 @@ async function conServidor(config, fn) {
   }
 }
 
-function pedir(base, metodo, ruta, { token, cuerpo, codigo } = {}) {
+function pedir(base, metodo, ruta, { token, cuerpo } = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
-  if (codigo) headers['X-Codigo-Enrolamiento'] = codigo;
   return fetch(base + ruta, { method: metodo, headers, body: cuerpo ? JSON.stringify(cuerpo) : undefined });
 }
 
@@ -71,10 +69,10 @@ test('panel: lee la flota, pero su secreto no sirve en las rutas de equipos', ()
   assert.strictEqual(res.status, 403);
 }));
 
-test('enrolamiento: codigo incorrecto 401, correcto entrega el token del equipo', () => conServidor(CONFIG, async (base) => {
-  const malo = await pedir(base, 'POST', '/api/equipos/enrolar', { cuerpo: { computerName: 'PC-A', codigo: 'otro' } });
-  assert.strictEqual(malo.status, 401);
-  const bueno = await pedir(base, 'POST', '/api/equipos/enrolar', { cuerpo: { computerName: 'PC-A', codigo: CONFIG.enrollmentCode } });
+test('enrolamiento: sin nombre valido 400, con nombre entrega el token del equipo', () => conServidor(CONFIG, async (base) => {
+  const malo = await pedir(base, 'POST', '/api/equipos/enrolar', { cuerpo: {} });
+  assert.strictEqual(malo.status, 400);
+  const bueno = await pedir(base, 'POST', '/api/equipos/enrolar', { cuerpo: { computerName: 'PC-A' } });
   assert.strictEqual(bueno.status, 200);
   assert.strictEqual((await bueno.json()).token, deviceTokenFor('PC-A', CONFIG.deviceSecret));
 }));
@@ -103,14 +101,13 @@ test('token alterado o firmado con otro secreto: 401', () => conServidor(CONFIG,
   }
 }));
 
-test('listas del formulario: con codigo de TI o token de equipo', () => conServidor(CONFIG, async (base) => {
-  assert.strictEqual((await pedir(base, 'GET', '/api/areas', { codigo: CONFIG.enrollmentCode })).status, 200);
-  assert.strictEqual((await pedir(base, 'GET', '/api/turnos', { codigo: 'otro' })).status, 401);
+test('listas del formulario: con token de equipo', () => conServidor(CONFIG, async (base) => {
+  assert.strictEqual((await pedir(base, 'GET', '/api/areas')).status, 401);
   assert.strictEqual((await pedir(base, 'GET', '/api/turnos', { token: deviceTokenFor('PC-A', CONFIG.deviceSecret) })).status, 200);
 }));
 
-test('sin DEVICE_SECRET ni ENROLLMENT_CODE configurados: falla cerrado con 503', () => conServidor({ jwtSecret: CONFIG.jwtSecret, deviceSecret: null, enrollmentCode: null }, async (base) => {
-  assert.strictEqual((await pedir(base, 'POST', '/api/equipos/enrolar', { cuerpo: { computerName: 'PC-A', codigo: 'x' } })).status, 503);
+test('sin DEVICE_SECRET configurado: falla cerrado con 503', () => conServidor({ jwtSecret: CONFIG.jwtSecret, deviceSecret: null }, async (base) => {
+  assert.strictEqual((await pedir(base, 'POST', '/api/equipos/enrolar', { cuerpo: { computerName: 'PC-A' } })).status, 503);
   assert.strictEqual((await pedir(base, 'POST', '/api/device-records', { token: 'cualquiera', cuerpo: { records: [] } })).status, 503);
   assert.strictEqual((await pedir(base, 'GET', '/api/equipos', { token: CONFIG.jwtSecret })).status, 200);
 }));

@@ -8,7 +8,7 @@ const SALUD_TIMEOUT_MS = 10000;
 
 /** Error de "equipo todavia sin token": no es un problema de conexion. */
 function sinEnrolar() {
-  const error = new Error('Equipo sin registrar: falta el codigo de enrolamiento de TI');
+  const error = new Error('Equipo sin registrar todavia en el servidor');
   error.code = 'SIN_ENROLAR';
   return error;
 }
@@ -57,18 +57,15 @@ async function checkServer(config) {
 }
 
 /**
- * Pide al backend el token propio del equipo con el codigo que TI entrega al
- * instalar. Devuelve el token; si el codigo no es valido lanza un error con
- * un mensaje para mostrar en el formulario.
+ * Pide al backend el token propio del equipo (solo con su ComputerName).
  */
-async function enrolarEquipo({ computerName, codigo }, config) {
+async function enrolarEquipo({ computerName }, config) {
   const response = await fetch(`${config.serverUrl}${config.enrolarPath}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ computerName, codigo }),
+    body: JSON.stringify({ computerName }),
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
-  if (response.status === 401) throw new Error('El codigo de enrolamiento no es valido.');
   if (!response.ok) throw new Error(`El servidor respondio ${response.status} ${response.statusText}`);
   const { token } = await response.json();
   return token;
@@ -83,17 +80,9 @@ async function registerEquipo(equipoInfo, config) {
   return true;
 }
 
-/**
- * Las listas del formulario se piden con el token del equipo o, si todavia
- * no se enrolo, con el codigo de TI que la persona escribio en el formulario.
- */
-async function pedirLista(url, config, codigo) {
-  let headers;
-  if (config.deviceToken) headers = { Authorization: `Bearer ${config.deviceToken}` };
-  else if (codigo) headers = { 'X-Codigo-Enrolamiento': codigo };
-  else throw sinEnrolar();
-
-  const response = await fetch(url, { headers, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+/** Las listas del formulario se piden con el token del equipo. */
+async function pedirLista(url, config) {
+  const response = await fetch(url, { headers: tokenEquipo(config), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   if (!response.ok) {
     throw new Error(`El servidor respondio ${response.status} ${response.statusText}`);
   }
@@ -104,8 +93,8 @@ async function pedirLista(url, config, codigo) {
  * Lista de { faena, area } existentes en el backend, para precargar el
  * formulario de registro. Se pide cada vez que se abre el formulario.
  */
-async function fetchAreas(config, codigo) {
-  const { areas } = await pedirLista(`${config.serverUrl}${config.areasPath}`, config, codigo);
+async function fetchAreas(config) {
+  const { areas } = await pedirLista(`${config.serverUrl}${config.areasPath}`, config);
   return areas;
 }
 
@@ -113,8 +102,8 @@ async function fetchAreas(config, codigo) {
  * Lista de { nombre, horaInicio, horaFin } de los turnos existentes en el
  * backend, para el desplegable de turno del formulario de registro.
  */
-async function fetchTurnos(config, codigo) {
-  const { turnos } = await pedirLista(`${config.serverUrl}${config.turnosPath}`, config, codigo);
+async function fetchTurnos(config) {
+  const { turnos } = await pedirLista(`${config.serverUrl}${config.turnosPath}`, config);
   return turnos;
 }
 

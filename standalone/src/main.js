@@ -18,7 +18,6 @@ const STATE_LABELS = {
   online: 'Conectado',
   offline: 'Sin conexion (datos en espera local)',
   error: 'Error al recolectar datos',
-  sin_enrolar: 'Sin registrar: falta el codigo de enrolamiento de TI',
 };
 
 const ICON_ONLINE_PATH = path.join(__dirname, '..', 'assets', 'tray-icon.png');
@@ -75,8 +74,7 @@ function buildMenuTemplate() {
 function refreshMenu() {
   if (!tray) return;
   tray.setContextMenu(Menu.buildFromTemplate(buildMenuTemplate()));
-  const enRojo = daemonStatus.state === 'offline' || daemonStatus.state === 'sin_enrolar';
-  tray.setImage(enRojo ? ICON_OFFLINE_PATH : ICON_ONLINE_PATH);
+  tray.setImage(daemonStatus.state === 'offline' ? ICON_OFFLINE_PATH : ICON_ONLINE_PATH);
 }
 
 /**
@@ -92,7 +90,7 @@ function openRegisterWindow() {
 
   registerWindow = new BrowserWindow({
     width: 470,
-    height: 810,
+    height: 730,
     resizable: false,
     autoHideMenuBar: true,
     // Se muestra recien cuando ya esta pintada, en vez de un recuadro en
@@ -113,39 +111,39 @@ function openRegisterWindow() {
 
 ipcMain.handle('cargar-equipo-info', () => readEquipoInfo());
 
-// Si el equipo ya tiene su token, el formulario no vuelve a pedir el codigo.
-ipcMain.handle('esta-enrolado', () => Boolean(config.deviceToken));
+/**
+ * Primera vez: el equipo pide su token propio al backend, sin que la persona
+ * escriba nada. Sin conexion falla y se reintenta despues (el scheduler lo
+ * llama antes de cada envio).
+ */
+async function asegurarToken() {
+  if (config.deviceToken) return;
+  const { computerName } = await getComputerName();
+  const token = await enrolarEquipo({ computerName }, config);
+  guardarTokenEquipo(config.dataDir, token);
+  config.deviceToken = token;
+}
 
-// Sin conexion (o sin codigo todavia) devuelve [] y el formulario muestra el
-// aviso. codigo es el de enrolamiento que escribio la persona, si aun no hay token.
-ipcMain.handle('listar-areas', async (event, codigo) => {
+// Sin conexion devuelve [] y el formulario muestra el aviso.
+ipcMain.handle('listar-areas', async () => {
   try {
-    return await fetchAreas(config, codigo);
+    await asegurarToken();
+    return await fetchAreas(config);
   } catch {
     return [];
   }
 });
 
-ipcMain.handle('listar-turnos', async (event, codigo) => {
+ipcMain.handle('listar-turnos', async () => {
   try {
-    return await fetchTurnos(config, codigo);
+    await asegurarToken();
+    return await fetchTurnos(config);
   } catch {
     return [];
   }
 });
 
-ipcMain.handle('guardar-equipo-info', async (event, { codigo, ...datos }) => {
-  // Primera vez: con el codigo de TI se obtiene el token propio del equipo.
-  // Requiere conexion; si falla, el error se muestra en el formulario y no se
-  // guarda nada. El codigo no se guarda en disco.
-  if (!config.deviceToken) {
-    if (!codigo) throw new Error('Falta el codigo de enrolamiento que entrega TI.');
-    const { computerName } = await getComputerName();
-    const token = await enrolarEquipo({ computerName, codigo }, config);
-    guardarTokenEquipo(config.dataDir, token);
-    config.deviceToken = token;
-  }
-
+ipcMain.handle('guardar-equipo-info', async (event, datos) => {
   fs.mkdirSync(config.dataDir, { recursive: true });
   fs.writeFileSync(equipoInfoPath(), JSON.stringify({ ...datos, sent: false }, null, 2), 'utf8');
 
@@ -154,6 +152,7 @@ ipcMain.handle('guardar-equipo-info', async (event, { codigo, ...datos }) => {
   // reintenta solo en el siguiente tick porque el archivo sigue sin marcarse
   // como enviado.
   try {
+    await asegurarToken();
     const { computerName } = await getComputerName();
     await registerEquipo({ ...datos, computerName }, config);
     markEquipoInfoSent(config.dataDir, datos);
@@ -199,6 +198,7 @@ app.whenReady().then(() => {
     // true si el equipo tiene alguna red activa (no garantiza internet: eso
     // lo detecta el envio que falla).
     hayRed: () => net.isOnline(),
+    asegurarToken,
     onStatus: (status) => {
       daemonStatus = { ...daemonStatus, ...status };
       refreshMenu();
@@ -207,9 +207,7 @@ app.whenReady().then(() => {
   // La primera recoleccion lanza varios PowerShell/netsh a la vez, que
   // compiten con la ventana de registro y la hacen tardar en aparecer. Si hay
   // que mostrarla, la recoleccion arranca recien cuando ya esta en pantalla.
-  // Tambien se abre si ya hay datos pero falta el token (instalacion anterior
-  // a los tokens por equipo): hay que ingresar el codigo de TI.
-  if (!readEquipoInfo() || !config.deviceToken) {
+  if (!readEquipoInfo()) {
     openRegisterWindow();
     registerWindow.once('ready-to-show', () => scheduler.start());
   } else {

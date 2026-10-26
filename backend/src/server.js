@@ -1,7 +1,7 @@
 'use strict';
 
 const http = require('http');
-const { isAuthorized, deviceTokenFor, getDeviceName, isValidEnrollmentCode } = require('./auth');
+const { isAuthorized, deviceTokenFor, getDeviceName } = require('./auth');
 const { insertRecords, upsertEquipoRegistro, getEquiposConUltimaUbicacion, getAreas, getTurnos } = require('./db');
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MB, de sobra para un lote de registros
@@ -151,11 +151,12 @@ function handleSalud(req, res) {
 const COMPUTER_NAME_VALIDO = /^[^\u0000-\u001f\u007f]{1,64}$/;
 
 /**
- * Enrolamiento: la app manda su ComputerName y el codigo que TI le dio al
- * instalarla, y recibe su token propio. El instalador no lleva ningun secreto.
+ * Enrolamiento: la app manda su ComputerName la primera vez que se conecta y
+ * recibe su token propio, sin codigo ni intervencion de nadie. El instalador
+ * no lleva ningun secreto; el token solo permite escribir a ese nombre.
  */
 async function handleEnrolar(req, res) {
-  if (!req.config.deviceSecret || !req.config.enrollmentCode) {
+  if (!req.config.deviceSecret) {
     res.writeHead(503).end();
     return;
   }
@@ -164,10 +165,6 @@ async function handleEnrolar(req, res) {
 
   if (!payload || typeof payload.computerName !== 'string' || !COMPUTER_NAME_VALIDO.test(payload.computerName)) {
     res.writeHead(400).end();
-    return;
-  }
-  if (!isValidEnrollmentCode(payload.codigo, req.config.enrollmentCode)) {
-    res.writeHead(401).end();
     return;
   }
   const token = deviceTokenFor(payload.computerName, req.config.deviceSecret);
@@ -179,8 +176,7 @@ async function handleEnrolar(req, res) {
  * - public: sin credencial (no devuelve datos).
  * - admin: credencial del panel (JWT_SECRET); lee toda la flota.
  * - device: token propio del equipo; el handler solo acepta su ComputerName.
- * - catalog: listas del formulario (areas, turnos): panel, equipo enrolado o
- *   el codigo de enrolamiento (la app las necesita antes de tener token).
+ * - catalog: listas del formulario (areas, turnos): panel o equipo enrolado.
  */
 const ROUTES = {
   POST: {
@@ -211,10 +207,6 @@ function autorizar(req, permiso, config) {
   } else if (permiso === 'device') {
     return 503;
   }
-  if (permiso === 'catalog' && config.enrollmentCode &&
-      isValidEnrollmentCode(req.headers['x-codigo-enrolamiento'], config.enrollmentCode)) {
-    return null;
-  }
   return 401;
 }
 
@@ -223,7 +215,7 @@ function createServer(config) {
     // CORS: el panel web que consume esta API corre en otro origen (localhost
     // en desarrollo, o el dominio donde se despliegue despues).
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Codigo-Enrolamiento');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
 
     if (req.method === 'OPTIONS') {

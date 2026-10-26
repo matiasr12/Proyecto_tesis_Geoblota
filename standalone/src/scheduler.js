@@ -43,7 +43,7 @@ const VERIFICACION_SERVIDOR_MS = 60 * 1000;
  * disco llama a onStatus(status) directo: todo corre en el mismo proceso
  * (tray + recoleccion), no hace falta el archivo como puente entre dos apps.
  */
-function createScheduler({ config, store, onStatus, hayRed = () => true, logger = console }) {
+function createScheduler({ config, store, onStatus, hayRed = () => true, asegurarToken = async () => {}, logger = console }) {
   let timer = null;
   let reintentoTimer = null;
   let vigilanciaTimer = null;
@@ -94,6 +94,7 @@ function createScheduler({ config, store, onStatus, hayRed = () => true, logger 
       return;
     }
     try {
+      await asegurarToken();
       await sendRecords(pending.map((p) => p.record), config);
     } catch {
       return; // sigue sin conexion; se reintenta en REINTENTO_SIN_CONEXION_MS
@@ -110,7 +111,7 @@ function createScheduler({ config, store, onStatus, hayRed = () => true, logger 
    */
   function vigilarRed() {
     const red = hayRed();
-    if (!red && estado !== 'offline' && estado !== 'sin_enrolar') {
+    if (!red && estado !== 'offline') {
       avisar({ state: 'offline', pendingCount: store.count(), lastError: 'Sin conexion de red' });
       iniciarReintentos();
     }
@@ -145,6 +146,8 @@ function createScheduler({ config, store, onStatus, hayRed = () => true, logger 
     const batch = [...pending.map((p) => p.record), snapshot];
 
     try {
+      // Equipo recien instalado: se enrola solo antes del primer envio.
+      await asegurarToken();
       await sendRecords(batch, config);
       store.deleteByIds(pending.map((p) => p.id));
       detenerReintentos();
@@ -155,12 +158,6 @@ function createScheduler({ config, store, onStatus, hayRed = () => true, logger 
       });
     } catch (error) {
       store.enqueue(snapshot);
-      // Sin token todavia: no es falta de conexion, asi que no se reintenta
-      // cada 30 s; la lectura queda en la cola hasta que el equipo se enrole.
-      if (error.code === 'SIN_ENROLAR') {
-        avisar({ state: 'sin_enrolar', pendingCount: store.count(), lastError: error.message });
-        return;
-      }
       iniciarReintentos();
       avisar({
         state: 'offline',
@@ -170,7 +167,7 @@ function createScheduler({ config, store, onStatus, hayRed = () => true, logger 
     }
   }
 
-  /** Recien enrolado (o registro guardado): manda la cola y una lectura ya. */
+  /** Registro recien guardado: manda la cola y una lectura ya. */
   function enviarAhora() {
     return enOrden(tick);
   }

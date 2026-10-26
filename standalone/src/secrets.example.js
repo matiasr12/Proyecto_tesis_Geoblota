@@ -3,8 +3,8 @@
 // Copiar a secrets.js (nunca se commitea) y completar antes de generar el
 // instalador con "npm run build:win". Estos valores quedan dentro del .exe que
 // se reparte, asi que NO debe ir aqui ninguna credencial del backend: cada
-// equipo obtiene su token propio al registrarse con el codigo de enrolamiento
-// que entrega TI (ver /api/equipos/enrolar).
+// equipo obtiene su token propio solo, la primera vez que se conecta
+// (ver /api/equipos/enrolar).
 
 module.exports = {
   SERVER_URL: 'https://reemplazar.azurewebsites.net',

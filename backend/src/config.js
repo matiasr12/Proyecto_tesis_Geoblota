@@ -21,8 +21,6 @@ function required(name) {
  *    panel) para leer GET /api/equipos. Nunca va en el instalador de los equipos.
  *  - DEVICE_SECRET (min. 32 caracteres): firma los tokens propios de cada
  *    equipo. Sin el, las rutas de los equipos responden 503 (falla cerrado).
- *  - ENROLLMENT_CODE (min. 12 caracteres): codigo que TI entrega al instalar
- *    la app; con el, el equipo obtiene su token. Sin el, el enrolamiento responde 503.
  *  - PORT (opcional): puerto donde escucha el servidor HTTP, default 3000
  *    (Azure App Service en Linux define PORT automaticamente en produccion)
  */
@@ -44,7 +42,6 @@ function loadConfig() {
     dbPassword: required('DB_PASSWORD'),
     jwtSecret: required('JWT_SECRET'),
     deviceSecret: optionalSecret('DEVICE_SECRET', 32),
-    enrollmentCode: optionalSecret('ENROLLMENT_CODE', 12),
     port: Number(process.env.PORT) || 3000,
   };
 }
