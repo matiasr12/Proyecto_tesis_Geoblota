@@ -25,6 +25,9 @@ function buildPoolConfig(config) {
     database: config.dbName,
     user: config.dbUser,
     password: config.dbPassword,
+    // La base serverless tarda hasta ~1 min en despertar de la auto-pausa;
+    // con el default (15 s) la primera consulta de la manana fallaba.
+    connectionTimeout: 60000,
     options: {
       encrypt: true,
       trustServerCertificate: false,
