@@ -21,6 +21,8 @@ function required(name) {
  *    panel) para leer GET /api/equipos. Nunca va en el instalador de los equipos.
  *  - DEVICE_SECRET (min. 32 caracteres): firma los tokens propios de cada
  *    equipo. Sin el, las rutas de los equipos responden 503 (falla cerrado).
+ *  - TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID (opcionales): bot y chat donde se
+ *    avisa cada alerta de geocerca que se abre. Sin ellas no se avisa.
  *  - PORT (opcional): puerto donde escucha el servidor HTTP, default 3000
  *    (Azure App Service en Linux define PORT automaticamente en produccion)
  */
@@ -42,6 +44,8 @@ function loadConfig() {
     dbPassword: required('DB_PASSWORD'),
     jwtSecret: required('JWT_SECRET'),
     deviceSecret: optionalSecret('DEVICE_SECRET', 32),
+    telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || null,
+    telegramChatId: process.env.TELEGRAM_CHAT_ID || null,
     port: Number(process.env.PORT) || 3000,
   };
 }

@@ -215,7 +215,8 @@ el "Editor de consultas" de Azure Portal (dentro del recurso de la base SQL) o d
 Azure Data Studio / SSMS.
 
 En Azure App Service las variables (`DB_SERVER`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`,
-`JWT_SECRET` y `DEVICE_SECRET` de 32+ caracteres) se cargan
+`JWT_SECRET`, `DEVICE_SECRET` de 32+ caracteres y, opcionales, `TELEGRAM_BOT_TOKEN` y
+`TELEGRAM_CHAT_ID` para avisar por Telegram cada alerta que se abre) se cargan
 en **Configuracion > Variables de entorno**, no en un `.env` (ese archivo es solo para
 correrlo en la maquina local). El `JWT_SECRET` debe ser el mismo valor que
 `DAEMON_API_TOKEN` del panel web. Cambiar `DEVICE_SECRET` invalida todos los tokens

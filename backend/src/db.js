@@ -1,6 +1,7 @@
 'use strict';
 
 const sql = require('mssql');
+const { notificarAlertaAbierta } = require('./telegram');
 
 // Debe coincidir con SIN_SENAL_MINUTOS del panel web (src/lib/daemon-api.ts).
 const SIN_SENAL_MINUTOS = 30;
@@ -133,7 +134,7 @@ async function insertRecords(config, records) {
   // la tabla Alertas) los registros ya quedaron guardados igual.
   try {
     for (const insertado of insertados) {
-      await actualizarAlerta(pool, insertado);
+      await actualizarAlerta(pool, insertado, config);
     }
   } catch (err) {
     console.error('[backend] error al actualizar el historial de alertas:', err.message);
@@ -149,8 +150,10 @@ async function insertRecords(config, records) {
  * La ubicacion es la de los routers conocidos si la lectura ve alguno (ver
  * UBICACION_POR_ROUTERS_SQL); si no, la que mando el PC (Windows).
  * Las fechas son las de la lectura (RecordTimestamp), no las de llegada.
+ * Al abrir una alerta avisa por Telegram sin esperar la respuesta, asi el PC
+ * no tarda mas en recibir el OK.
  */
-async function actualizarAlerta(pool, { equipoId, deviceRecordId, bssids, latitud, longitud, fecha }) {
+async function actualizarAlerta(pool, { equipoId, deviceRecordId, bssids, latitud, longitud, fecha }, config) {
   const request = pool.request();
   request.input('equipoId', sql.Int, equipoId);
   request.input('deviceRecordId', sql.Int, deviceRecordId);
@@ -158,8 +161,8 @@ async function actualizarAlerta(pool, { equipoId, deviceRecordId, bssids, latitu
   request.input('latitud', sql.Decimal(9, 6), latitud);
   request.input('longitud', sql.Decimal(9, 6), longitud);
   request.input('fecha', sql.DateTime2, fecha);
-  await request.query(`
-    DECLARE @areaId INT, @dentro BIT, @latRouters FLOAT, @lonRouters FLOAT;
+  const result = await request.query(`
+    DECLARE @areaId INT, @dentro BIT, @latRouters FLOAT, @lonRouters FLOAT, @abierta BIT = 0;
 
     SELECT @latRouters = r.latitud, @lonRouters = r.longitud
     FROM (${UBICACION_POR_ROUTERS_SQL('@bssids')}) r;
@@ -182,13 +185,40 @@ async function actualizarAlerta(pool, { equipoId, deviceRecordId, bssids, latitu
     IF @dentro = 0 AND NOT EXISTS (
       SELECT 1 FROM dbo.Alertas WHERE EquipoId = @equipoId AND Estado <> 'cerrada'
     )
+    BEGIN
       INSERT INTO dbo.Alertas (EquipoId, AreaId, DeviceRecordId, Estado, FechaInicio)
       VALUES (@equipoId, @areaId, @deviceRecordId, 'abierta', @fecha);
+      SET @abierta = 1;
+    END
     ELSE IF @dentro = 1
       UPDATE dbo.Alertas
       SET Estado = 'cerrada', FechaCierre = @fecha
       WHERE EquipoId = @equipoId AND Estado <> 'cerrada';
+
+    -- Solo al abrir: datos para el aviso. Area detectada = la del primer
+    -- router conocido que ve la lectura (puede no haber ninguno).
+    IF @abierta = 1
+      SELECT
+        e.ComputerName AS computerName,
+        p.Nombre AS nombre,
+        p.Apellido AS apellido,
+        a.Nombre AS areaAsignada,
+        (SELECT TOP 1 ad.Nombre
+         FROM OPENJSON(CASE WHEN ISJSON(@bssids) = 1 THEN @bssids END) j
+         JOIN dbo.BssidsArea ba ON ba.Bssid = LOWER(j.value)
+         JOIN dbo.Areas ad ON ad.Id = ba.AreaId) AS areaDetectada
+      FROM dbo.Equipos e
+      LEFT JOIN dbo.Personal p ON p.Id = e.PersonalId
+      LEFT JOIN dbo.Areas a ON a.Id = @areaId
+      WHERE e.Id = @equipoId;
   `);
+
+  const abierta = result.recordset && result.recordset[0];
+  if (abierta) {
+    notificarAlertaAbierta({ equipoId, fechaInicio: fecha, ...abierta }, config).catch((err) => {
+      console.error('[telegram] error inesperado:', err.name);
+    });
+  }
 }
 
 async function getOrCreateFaenaId(transaction, nombre) {

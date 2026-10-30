@@ -145,3 +145,15 @@ BEGIN
     ALTER TABLE dbo.DeviceRecords ADD Longitud DECIMAL(9,6) NULL;
     ALTER TABLE dbo.DeviceRecords ADD PrecisionMetros DECIMAL(10,2) NULL;
 END;
+
+-- Contacto de la persona responsable. Opcionales: el formulario de registro
+-- todavia no los pide; se completan a mano.
+IF COL_LENGTH('dbo.Personal', 'Telefono') IS NULL
+BEGIN
+    ALTER TABLE dbo.Personal ADD Telefono NVARCHAR(20) NULL;
+END;
+
+IF COL_LENGTH('dbo.Personal', 'Correo') IS NULL
+BEGIN
+    ALTER TABLE dbo.Personal ADD Correo NVARCHAR(256) NULL;
+END;
