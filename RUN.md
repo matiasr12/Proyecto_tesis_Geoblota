@@ -184,6 +184,8 @@ Rutas de lectura:
   La ubicacion es el promedio de los routers de `dbo.BssidsArea` que ve la lectura
   (con coordenadas); si no ve ninguno, la que mando el PC (Windows).
 - `GET /api/areas`: lista `{ faena, area }` para los desplegables del registro.
+- `GET /api/health`: hace `SELECT 1` en la base y responde `{ ok: true, dbMs }` o 503.
+  Despierta la base: no usarla como Health check de Azure (usar `/api/salud`).
 - `GET /api/salud`: responde `{ ok: true }` sin tocar la base; la app lo consulta cada
   minuto para saber si el backend esta vivo.
 

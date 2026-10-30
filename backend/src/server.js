@@ -2,7 +2,7 @@
 
 const http = require('http');
 const { isAuthorized, deviceTokenFor, getDeviceName } = require('./auth');
-const { insertRecords, upsertEquipoRegistro, getEquiposConUltimaUbicacion, getAreas, getTurnos } = require('./db');
+const { insertRecords, upsertEquipoRegistro, getEquiposConUltimaUbicacion, getAreas, getTurnos, pingDb } = require('./db');
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MB, de sobra para un lote de registros
 
@@ -112,11 +112,13 @@ async function handleEquipoRegistro(req, res) {
 }
 
 async function handleListEquipos(req, res) {
+  const inicio = Date.now();
   try {
     const equipos = await getEquiposConUltimaUbicacion(req.config);
+    console.log(`[backend] GET /api/equipos: ${equipos.length} equipos en ${Date.now() - inicio} ms`);
     res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ equipos }));
   } catch (err) {
-    console.error('[backend] error al listar equipos:', err.message);
+    console.error(`[backend] error al listar equipos tras ${Date.now() - inicio} ms:`, err.message);
     res.writeHead(500).end();
   }
 }
@@ -146,6 +148,21 @@ async function handleListTurnos(req, res) {
 // gasta cuota del plan serverless.
 function handleSalud(req, res) {
   res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true }));
+}
+
+/**
+ * Diagnostico de la base: SELECT 1 y cuanto tardo. Publica y sin datos. Ojo:
+ * despierta la base serverless, asi que no conviene consultarla cada minuto
+ * (Health check de Azure): la mantendria siempre encendida.
+ */
+async function handleHealth(req, res) {
+  try {
+    const dbMs = await pingDb(req.config);
+    res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true, dbMs }));
+  } catch (err) {
+    console.error('[backend] health: la base no responde:', err.message);
+    res.writeHead(503, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: false }));
+  }
 }
 
 const COMPUTER_NAME_VALIDO = /^[^\u0000-\u001f\u007f]{1,64}$/;
@@ -186,6 +203,7 @@ const ROUTES = {
   },
   GET: {
     '/api/salud': { handler: handleSalud, permiso: 'public' },
+    '/api/health': { handler: handleHealth, permiso: 'public' },
     '/api/equipos': { handler: handleListEquipos, permiso: 'admin' },
     '/api/areas': { handler: handleListAreas, permiso: 'catalog' },
     '/api/turnos': { handler: handleListTurnos, permiso: 'catalog' },

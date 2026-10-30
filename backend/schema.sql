@@ -157,3 +157,17 @@ IF COL_LENGTH('dbo.Personal', 'Correo') IS NULL
 BEGIN
     ALTER TABLE dbo.Personal ADD Correo NVARCHAR(256) NULL;
 END;
+
+-- Indices para que las consultas no recorran toda DeviceRecords:
+-- - ultima lectura por equipo (GET /api/equipos: TOP 1 ... ORDER BY ReceivedAt DESC);
+-- - deteccion de lecturas repetidas al insertar (EquipoId + RecordTimestamp);
+-- - alerta abierta de un equipo (EquipoId + Estado).
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_DeviceRecords_EquipoId_ReceivedAt')
+    CREATE INDEX IX_DeviceRecords_EquipoId_ReceivedAt ON dbo.DeviceRecords (EquipoId, ReceivedAt DESC);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_DeviceRecords_EquipoId_RecordTimestamp')
+    CREATE INDEX IX_DeviceRecords_EquipoId_RecordTimestamp ON dbo.DeviceRecords (EquipoId, RecordTimestamp);
+
+IF OBJECT_ID('dbo.Alertas', 'U') IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Alertas_EquipoId_Estado')
+    CREATE INDEX IX_Alertas_EquipoId_Estado ON dbo.Alertas (EquipoId, Estado);

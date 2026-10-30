@@ -26,9 +26,11 @@ function buildPoolConfig(config) {
     database: config.dbName,
     user: config.dbUser,
     password: config.dbPassword,
-    // La base serverless tarda hasta ~1 min en despertar de la auto-pausa;
-    // con el default (15 s) la primera consulta de la manana fallaba.
-    connectionTimeout: 60000,
+    // La base serverless tarda 1-2 min en despertar de la auto-pausa; con el
+    // default (15 s) la primera consulta despues de la pausa fallaba.
+    connectionTimeout: 90000,
+    // Ninguna consulta puede quedar esperando para siempre.
+    requestTimeout: 30000,
     options: {
       encrypt: true,
       trustServerCertificate: false,
@@ -38,19 +40,49 @@ function buildPoolConfig(config) {
 
 let poolPromise = null;
 
+/** Olvida el pool cacheado (si sigue siendo el mismo) y lo cierra. */
+function descartarPool(promesa) {
+  if (poolPromise !== promesa) return;
+  poolPromise = null;
+  promesa.then((pool) => pool.close()).catch(() => {});
+}
+
 /**
- * La base usa auto-pausa (tier serverless): si la primera conexion falla porque
- * todavia esta "despertando", no hay que dejar cacheado ese fallo para siempre,
- * sino permitir que el proximo request reintente.
+ * La base usa auto-pausa (tier serverless). Reglas para no quedar pegado:
+ * - si la conexion falla porque todavia esta "despertando", no se deja
+ *   cacheado ese fallo: el proximo request reintenta;
+ * - si el pool quedo desconectado o sin conexiones sanas, o emitio 'error',
+ *   se descarta y se crea uno nuevo.
  */
-function getPool(config) {
+async function getPool(config) {
+  if (poolPromise) {
+    const actual = poolPromise;
+    const pool = await actual;
+    if (pool.connected && pool.healthy) return pool;
+    console.warn('[backend] pool de la base desconectado o sin conexiones sanas: se recrea');
+    descartarPool(actual);
+  }
   if (!poolPromise) {
-    poolPromise = sql.connect(buildPoolConfig(config)).catch((err) => {
-      poolPromise = null;
+    const pool = new sql.ConnectionPool(buildPoolConfig(config));
+    const promesa = pool.connect().catch((err) => {
+      if (poolPromise === promesa) poolPromise = null;
       throw err;
     });
+    pool.on('error', (err) => {
+      console.error('[backend] error del pool de la base, se recrea:', err.message);
+      descartarPool(promesa);
+    });
+    poolPromise = promesa;
   }
   return poolPromise;
+}
+
+/** Diagnostico: tarda lo que tarde la base en responder un SELECT 1. */
+async function pingDb(config) {
+  const inicio = Date.now();
+  const pool = await getPool(config);
+  await pool.request().query('SELECT 1 AS ok');
+  return Date.now() - inicio;
 }
 
 /**
@@ -586,4 +618,4 @@ async function getTurnos(config) {
   return result.recordset;
 }
 
-module.exports = { insertRecords, upsertEquipoRegistro, getEquiposConUltimaUbicacion, getAreas, getTurnos };
+module.exports = { insertRecords, upsertEquipoRegistro, getEquiposConUltimaUbicacion, getAreas, getTurnos, pingDb };

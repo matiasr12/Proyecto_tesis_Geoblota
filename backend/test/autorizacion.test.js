@@ -10,12 +10,17 @@ const assert = require('node:assert');
 const path = require('path');
 
 const llamadas = [];
+let baseCaida = false;
 const dbFalsa = {
   insertRecords: async (config, records) => llamadas.push(['insertRecords', records]),
   upsertEquipoRegistro: async (config, datos) => llamadas.push(['upsertEquipoRegistro', datos]),
   getEquiposConUltimaUbicacion: async () => [{ computerName: 'PC-A', rut: '1-9' }],
   getAreas: async () => [{ faena: 'F', area: 'A' }],
   getTurnos: async () => [{ nombre: 'T' }],
+  pingDb: async () => {
+    if (baseCaida) throw new Error('Failed to connect');
+    return 42;
+  },
 };
 require.cache[require.resolve(path.join(__dirname, '..', 'src', 'db.js'))] = { exports: dbFalsa };
 
@@ -61,6 +66,20 @@ test('salud es publica y no devuelve datos', () => conServidor(CONFIG, async (ba
   const res = await pedir(base, 'GET', '/api/salud');
   assert.strictEqual(res.status, 200);
   assert.deepStrictEqual(await res.json(), { ok: true });
+}));
+
+test('health: SELECT 1 a la base, publico; 503 si la base no responde', () => conServidor(CONFIG, async (base) => {
+  const ok = await pedir(base, 'GET', '/api/health');
+  assert.strictEqual(ok.status, 200);
+  assert.deepStrictEqual(await ok.json(), { ok: true, dbMs: 42 });
+  baseCaida = true;
+  try {
+    const caida = await pedir(base, 'GET', '/api/health');
+    assert.strictEqual(caida.status, 503);
+    assert.deepStrictEqual(await caida.json(), { ok: false });
+  } finally {
+    baseCaida = false;
+  }
 }));
 
 test('panel: lee la flota, pero su secreto no sirve en las rutas de equipos', () => conServidor(CONFIG, async (base) => {
