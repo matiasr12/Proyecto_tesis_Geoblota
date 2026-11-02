@@ -171,3 +171,20 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_DeviceRecords_EquipoId
 IF OBJECT_ID('dbo.Alertas', 'U') IS NOT NULL
    AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Alertas_EquipoId_Estado')
     CREATE INDEX IX_Alertas_EquipoId_Estado ON dbo.Alertas (EquipoId, Estado);
+
+-- Ubicacion por IP: subredes de la faena con la coordenada que representan
+-- (por ejemplo, el centro del edificio o del area donde esta esa red). Si la
+-- IP local del PC cae en un rango y no ve routers registrados, se usa esta
+-- coordenada en vez de la de Windows. IpDesde/IpHasta en texto IPv4.
+IF OBJECT_ID('dbo.RangosIp', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.RangosIp (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        Nombre NVARCHAR(100) NOT NULL,
+        IpDesde VARCHAR(15) NOT NULL,
+        IpHasta VARCHAR(15) NOT NULL,
+        Latitud DECIMAL(9,6) NOT NULL,
+        Longitud DECIMAL(9,6) NOT NULL,
+        AreaId INT NULL REFERENCES dbo.Areas(Id)
+    );
+END;

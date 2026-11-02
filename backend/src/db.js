@@ -53,6 +53,26 @@ const UBICACION_POR_ROUTERS_SQL = (bssidsJson) => `
   WHERE r.dbm IS NULL OR r.dbm >= ${SENAL_MINIMA_DBM} OR r.mejorDbm < ${SENAL_MINIMA_DBM}
 `;
 
+/** IPv4 en texto -> numero, para comparar con los rangos (NULL si no es IPv4). */
+const IP_A_NUMERO_SQL = (ip) => `(
+  TRY_CAST(PARSENAME(${ip}, 4) AS BIGINT) * 16777216 + TRY_CAST(PARSENAME(${ip}, 3) AS BIGINT) * 65536 +
+  TRY_CAST(PARSENAME(${ip}, 2) AS BIGINT) * 256 + TRY_CAST(PARSENAME(${ip}, 1) AS BIGINT))`;
+
+/**
+ * SELECT con la ubicacion por IP: si la IP local del PC cae en un rango de
+ * dbo.RangosIp (las subredes de la faena), la coordenada de ese rango. Si
+ * hay rangos superpuestos gana el mas chico (el mas especifico). Es el
+ * respaldo entre los routers y Windows: menos precisa que los routers, pero
+ * dentro de la faena mejor que Windows, que ubica en la salida a internet.
+ * Una IP fuera de todos los rangos (p. ej. la red del celular) no da nada.
+ */
+const UBICACION_POR_IP_SQL = (ip) => `
+  SELECT TOP 1 CAST(ri.Latitud AS FLOAT) AS latitud, CAST(ri.Longitud AS FLOAT) AS longitud
+  FROM dbo.RangosIp ri
+  WHERE ${IP_A_NUMERO_SQL(ip)} BETWEEN ${IP_A_NUMERO_SQL('ri.IpDesde')} AND ${IP_A_NUMERO_SQL('ri.IpHasta')}
+  ORDER BY ${IP_A_NUMERO_SQL('ri.IpHasta')} - ${IP_A_NUMERO_SQL('ri.IpDesde')}
+`;
+
 /** Lista de BSSID (texto) de una lectura guardada, en cualquiera de los dos formatos. */
 function bssidsDeLectura(bssidsJson) {
   const lista = bssidsJson ? JSON.parse(bssidsJson) : [];
@@ -190,6 +210,7 @@ async function insertRecords(config, records) {
         equipoId,
         deviceRecordId: result.recordset[0].Id,
         bssids: JSON.stringify(record.bssids),
+        ip: record.ip ?? null,
         latitud: record.latitud ?? null,
         longitud: record.longitud ?? null,
         fecha: new Date(record.timestamp),
@@ -224,22 +245,28 @@ async function insertRecords(config, records) {
  * Al abrir una alerta avisa por Telegram sin esperar la respuesta, asi el PC
  * no tarda mas en recibir el OK.
  */
-async function actualizarAlerta(pool, { equipoId, deviceRecordId, bssids, latitud, longitud, fecha }, config) {
+async function actualizarAlerta(pool, { equipoId, deviceRecordId, bssids, ip, latitud, longitud, fecha }, config) {
   const request = pool.request();
   request.input('equipoId', sql.Int, equipoId);
   request.input('deviceRecordId', sql.Int, deviceRecordId);
   request.input('bssids', sql.NVarChar, bssids ?? null);
+  request.input('ip', sql.NVarChar, ip ?? null);
   request.input('latitud', sql.Decimal(9, 6), latitud);
   request.input('longitud', sql.Decimal(9, 6), longitud);
   request.input('fecha', sql.DateTime2, fecha);
   const result = await request.query(`
     DECLARE @areaId INT, @dentro BIT, @latRouters FLOAT, @lonRouters FLOAT, @abierta BIT = 0;
+    DECLARE @latIp FLOAT, @lonIp FLOAT;
 
     SELECT @latRouters = r.latitud, @lonRouters = r.longitud
     FROM (${UBICACION_POR_ROUTERS_SQL('@bssids')}) r;
 
-    DECLARE @lat FLOAT = COALESCE(@latRouters, @latitud);
-    DECLARE @lon FLOAT = COALESCE(@lonRouters, @longitud);
+    SELECT @latIp = i.latitud, @lonIp = i.longitud
+    FROM (${UBICACION_POR_IP_SQL('@ip')}) i;
+
+    -- Routers, si no IP de la faena, si no Windows.
+    DECLARE @lat FLOAT = COALESCE(@latRouters, @latIp, @latitud);
+    DECLARE @lon FLOAT = COALESCE(@lonRouters, @lonIp, @longitud);
 
     -- geography::Point recibe (latitud, longitud, SRID) en ese orden.
     SELECT
@@ -454,11 +481,13 @@ async function getEquiposConUltimaUbicacion(config) {
       dr.Ip AS ip,
       dr.ConnectionType AS connectionType,
       -- Ubicacion efectiva: la de los routers conocidos si la lectura ve
-      -- alguno; si no, la que mando el PC (Windows).
-      COALESCE(rt.latitud, dr.Latitud) AS latitud,
-      COALESCE(rt.longitud, dr.Longitud) AS longitud,
+      -- alguno; si no, la del rango de IP de la faena; si no, la que mando
+      -- el PC (Windows).
+      COALESCE(rt.latitud, ri.latitud, dr.Latitud) AS latitud,
+      COALESCE(rt.longitud, ri.longitud, dr.Longitud) AS longitud,
       CASE
         WHEN rt.latitud IS NOT NULL THEN 'routers'
+        WHEN ri.latitud IS NOT NULL THEN 'ip'
         WHEN dr.Latitud IS NOT NULL THEN 'windows'
       END AS fuenteUbicacion,
       dr.PrecisionMetros AS precisionMetros,
@@ -468,9 +497,9 @@ async function getEquiposConUltimaUbicacion(config) {
       -- poligono en el area asignada o sin ubicacion en la ultima lectura).
       -- geography::Point recibe (latitud, longitud, SRID) en ese orden.
       CASE
-        WHEN a.Poligono IS NULL OR COALESCE(rt.latitud, dr.Latitud) IS NULL THEN NULL
+        WHEN a.Poligono IS NULL OR COALESCE(rt.latitud, ri.latitud, dr.Latitud) IS NULL THEN NULL
         ELSE a.Poligono.STContains(geography::Point(
-          COALESCE(rt.latitud, dr.Latitud), COALESCE(rt.longitud, dr.Longitud), 4326))
+          COALESCE(rt.latitud, ri.latitud, dr.Latitud), COALESCE(rt.longitud, ri.longitud, dr.Longitud), 4326))
       END AS dentroDelArea
     FROM dbo.Equipos e
     OUTER APPLY (
@@ -482,6 +511,7 @@ async function getEquiposConUltimaUbicacion(config) {
       ORDER BY dr2.ReceivedAt DESC
     ) dr
     OUTER APPLY (${UBICACION_POR_ROUTERS_SQL('dr.Bssids')}) rt
+    OUTER APPLY (${UBICACION_POR_IP_SQL('dr.Ip')}) ri
     LEFT JOIN dbo.Personal p ON p.Id = e.PersonalId
     LEFT JOIN dbo.Areas a ON a.Id = p.AreaId
     LEFT JOIN dbo.Faenas f ON f.Id = p.FaenaId
