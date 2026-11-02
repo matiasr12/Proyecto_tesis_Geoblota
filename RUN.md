@@ -181,8 +181,9 @@ Rutas de lectura:
 
 - `GET /api/equipos`: un renglon por equipo con su persona/area/faena, ultima
   ubicacion y `alerta` si esa ubicacion cae fuera del poligono del area asignada.
-  La ubicacion es el promedio de los routers de `dbo.BssidsArea` que ve la lectura
-  (con coordenadas); si no ve ninguno, la que mando el PC (Windows).
+  La ubicacion es el centroide ponderado por senal de los routers de `dbo.BssidsArea`
+  que ve la lectura (peso 10^(dBm/20); se ignoran los de menos de -80 dBm si hay
+  alguno mas fuerte) con coordenadas; si no ve ninguno, la que mando el PC (Windows).
 - `GET /api/areas`: lista `{ faena, area }` para los desplegables del registro.
 - `GET /api/health`: hace `SELECT 1` en la base y responde `{ ok: true, dbMs }` o 503.
   Despierta la base: no usarla como Health check de Azure (usar `/api/salud`).

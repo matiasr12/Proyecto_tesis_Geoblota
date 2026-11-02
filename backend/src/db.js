@@ -6,19 +6,58 @@ const { notificarAlertaAbierta } = require('./telegram');
 // Debe coincidir con SIN_SENAL_MINUTOS del panel web (src/lib/daemon-api.ts).
 const SIN_SENAL_MINUTOS = 30;
 
+// Routers con senal mas debil que esto se ignoran (solo agregan error), salvo
+// que la lectura no vea ninguno mas fuerte.
+const SENAL_MINIMA_DBM = -80;
+
 /**
- * SELECT con la ubicacion estimada por los routers conocidos: promedio de
- * las coordenadas en BssidsArea de los BSSID de una lectura (columna o
- * variable con el JSON de Bssids). Da NULL si la lectura no ve ningun router
- * registrado con coordenadas. En la red corporativa la ubicacion de Windows
- * cae en el punto de salida a internet, por eso un router conocido manda.
+ * Filas (bssid, dbm) del JSON de Bssids de una lectura. Acepta los dos
+ * formatos guardados: ["aa:bb:..."] (lecturas antiguas y modo servicio, sin
+ * senal) y [{"bssid":"aa:bb:...","dBm":-45}] (app actual).
+ */
+const ROUTERS_DE_LECTURA_SQL = (bssidsJson) => `
+  SELECT
+    LOWER(CASE WHEN j.type = 5 THEN JSON_VALUE(j.value, '$.bssid') ELSE j.value END) AS bssid,
+    CASE WHEN j.type = 5 THEN TRY_CAST(JSON_VALUE(j.value, '$.dBm') AS FLOAT) END AS dbm
+  FROM OPENJSON(CASE WHEN ISJSON(${bssidsJson}) = 1 THEN ${bssidsJson} END) j
+`;
+
+/**
+ * SELECT con la ubicacion estimada por los routers conocidos que ve una
+ * lectura (columna o variable con el JSON de Bssids): centroide ponderado por
+ * senal. Cada router pesa 10^(dBm/20) (inverso de la distancia en el modelo
+ * de propagacion en espacio libre): uno a -45 dBm pesa ~56 veces mas que uno a
+ * -80, asi el punto se acerca al router que esta al lado del PC. Sin senal
+ * (formato antiguo) pesan todos igual: centroide simple. Da NULL si no ve
+ * ningun router registrado con coordenadas. En la red corporativa la
+ * ubicacion de Windows cae en el punto de salida a internet, por eso un
+ * router conocido manda.
  */
 const UBICACION_POR_ROUTERS_SQL = (bssidsJson) => `
-  SELECT AVG(CAST(ba.Latitud AS FLOAT)) AS latitud, AVG(CAST(ba.Longitud AS FLOAT)) AS longitud
-  FROM OPENJSON(CASE WHEN ISJSON(${bssidsJson}) = 1 THEN ${bssidsJson} END) j
-  JOIN dbo.BssidsArea ba ON ba.Bssid = LOWER(j.value)
-  WHERE ba.Latitud IS NOT NULL AND ba.Longitud IS NOT NULL
+  SELECT
+    SUM(r.peso * r.lat) / SUM(r.peso) AS latitud,
+    SUM(r.peso * r.lon) / SUM(r.peso) AS longitud
+  FROM (
+    SELECT
+      CAST(ba.Latitud AS FLOAT) AS lat,
+      CAST(ba.Longitud AS FLOAT) AS lon,
+      s.dbm,
+      MAX(s.dbm) OVER () AS mejorDbm,
+      -- FLOAT y no 10.0: POWER devuelve el tipo de la base y un decimal
+      -- redondearia los pesos a 0.
+      CASE WHEN s.dbm IS NULL THEN 1.0 ELSE POWER(CAST(10 AS FLOAT), s.dbm / 20.0) END AS peso
+    FROM (${ROUTERS_DE_LECTURA_SQL(bssidsJson)}) s
+    JOIN dbo.BssidsArea ba ON ba.Bssid = s.bssid
+    WHERE ba.Latitud IS NOT NULL AND ba.Longitud IS NOT NULL
+  ) r
+  WHERE r.dbm IS NULL OR r.dbm >= ${SENAL_MINIMA_DBM} OR r.mejorDbm < ${SENAL_MINIMA_DBM}
 `;
+
+/** Lista de BSSID (texto) de una lectura guardada, en cualquiera de los dos formatos. */
+function bssidsDeLectura(bssidsJson) {
+  const lista = bssidsJson ? JSON.parse(bssidsJson) : [];
+  return lista.map((b) => (typeof b === 'string' ? b : b.bssid).toLowerCase());
+}
 
 function buildPoolConfig(config) {
   return {
@@ -236,8 +275,8 @@ async function actualizarAlerta(pool, { equipoId, deviceRecordId, bssids, latitu
         p.Apellido AS apellido,
         a.Nombre AS areaAsignada,
         (SELECT TOP 1 ad.Nombre
-         FROM OPENJSON(CASE WHEN ISJSON(@bssids) = 1 THEN @bssids END) j
-         JOIN dbo.BssidsArea ba ON ba.Bssid = LOWER(j.value)
+         FROM (${ROUTERS_DE_LECTURA_SQL('@bssids')}) j
+         JOIN dbo.BssidsArea ba ON ba.Bssid = j.bssid
          JOIN dbo.Areas ad ON ad.Id = ba.AreaId) AS areaDetectada
       FROM dbo.Equipos e
       LEFT JOIN dbo.Personal p ON p.Id = e.PersonalId
@@ -463,8 +502,8 @@ async function getEquiposConUltimaUbicacion(config) {
       turnoDiasDescanso,
       ...row
     }) => {
-    const bssids = row.bssids ? JSON.parse(row.bssids) : [];
-    const match = bssids.map((b) => bssidToArea.get(b.toLowerCase())).find(Boolean) || null;
+    const bssids = bssidsDeLectura(row.bssids);
+    const match = bssids.map((b) => bssidToArea.get(b)).find(Boolean) || null;
     const areaDetectada = match ? match.area : null;
 
     // Mismo umbral que el panel usa para "sin señal": sin lectura en los

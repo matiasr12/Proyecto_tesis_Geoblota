@@ -18,7 +18,7 @@ const { resolveWindowsLocation } = require('./windowsLocation');
  * o sin fix), y hay una API key de Google Geolocation configurada, se intenta
  * con el WiFi visible como respaldo. Si ninguna resuelve, lat/long quedan null.
  * @param {{googleGeolocationApiKey?: string|null}} [config]
- * @returns {Promise<{computerName: string, bssids: string[], ip: string|null, connectionType: string, latitud: number|null, longitud: number|null, precisionMetros: number|null, timestamp: string}>}
+ * @returns {Promise<{computerName: string, bssids: {bssid: string, dBm: number|null}[], ip: string|null, connectionType: string, latitud: number|null, longitud: number|null, precisionMetros: number|null, timestamp: string}>}
  */
 async function collectSnapshot(config) {
   const [nameInfo, accessPoints, ip, connectionType] = await Promise.all([
@@ -35,7 +35,8 @@ async function collectSnapshot(config) {
 
   return {
     computerName: nameInfo.computerName,
-    bssids: accessPoints.map((ap) => ap.bssid),
+    // Con la senal: el backend pondera cada router por ella (centroide ponderado).
+    bssids: accessPoints.map((ap) => ({ bssid: ap.bssid, dBm: ap.dBm })),
     ip,
     connectionType,
     latitud: location ? location.latitud : null,

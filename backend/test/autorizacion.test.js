@@ -111,6 +111,17 @@ test('token de equipo: escribe solo a su nombre (hallazgo 2)', () => conServidor
   assert.deepStrictEqual(llamadas.map((l) => l[0]), ['insertRecords', 'upsertEquipoRegistro']);
 }));
 
+test('lecturas: acepta bssids como texto (formato antiguo) o con senal; rechaza basura', () => conServidor(CONFIG, async (base) => {
+  const token = deviceTokenFor('PC-A', CONFIG.deviceSecret);
+  const con = (bssids) => ({ ...lectura('PC-A'), bssids });
+  const enviar = (bssids) => pedir(base, 'POST', '/api/device-records', { token, cuerpo: { records: [con(bssids)] } });
+  assert.strictEqual((await enviar(['aa:bb:cc:dd:ee:ff'])).status, 200);
+  assert.strictEqual((await enviar([{ bssid: 'aa:bb:cc:dd:ee:ff', dBm: -45 }, { bssid: '11:22:33:44:55:66', dBm: null }])).status, 200);
+  assert.strictEqual((await enviar([{ bssid: 'aa:bb:cc:dd:ee:ff', dBm: '-45' }])).status, 400);
+  assert.strictEqual((await enviar([{ dBm: -45 }])).status, 400);
+  assert.strictEqual((await enviar([null])).status, 400);
+}));
+
 test('token alterado o firmado con otro secreto: 401', () => conServidor(CONFIG, async (base) => {
   const [, firma] = deviceTokenFor('PC-A', CONFIG.deviceSecret).split('.');
   const otroNombre = `${Buffer.from('PC-B').toString('base64url')}.${firma}`;

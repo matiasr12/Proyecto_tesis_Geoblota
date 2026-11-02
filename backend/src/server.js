@@ -11,7 +11,11 @@ function isValidRecord(record) {
     record &&
     typeof record.computerName === 'string' &&
     Array.isArray(record.bssids) &&
-    record.bssids.every((b) => typeof b === 'string') &&
+    // Texto (modo servicio, versiones anteriores) o { bssid, dBm } (app actual,
+    // la senal se usa para el centroide ponderado).
+    record.bssids.every((b) => typeof b === 'string' || (
+      b && typeof b.bssid === 'string' && (b.dBm === null || typeof b.dBm === 'number')
+    )) &&
     (record.ip === null || typeof record.ip === 'string') &&
     // Opcional: daemons ya desplegados que todavia no lo mandan siguen
     // funcionando igual.
