@@ -6,6 +6,18 @@ const { notificarAlertaAbierta } = require('./telegram');
 // Debe coincidir con SIN_SENAL_MINUTOS del panel web (src/lib/daemon-api.ts).
 const SIN_SENAL_MINUTOS = 30;
 
+/**
+ * Routers con coordenada conocida: los registrados a mano en BssidsArea y,
+ * para los BSSID que no estan ahi, los que el sistema aprendio solo
+ * (BssidsAprendidos, ver aprenderBssids). Lo manual siempre manda.
+ */
+const ROUTERS_CONOCIDOS_SQL = `
+  SELECT Bssid, AreaId, Latitud, Longitud FROM dbo.BssidsArea
+  UNION ALL
+  SELECT ap.Bssid, ap.AreaId, ap.Latitud, ap.Longitud FROM dbo.BssidsAprendidos ap
+  WHERE NOT EXISTS (SELECT 1 FROM dbo.BssidsArea m WHERE m.Bssid = ap.Bssid)
+`;
+
 // Routers con senal mas debil que esto se ignoran (solo agregan error), salvo
 // que la lectura no vea ninguno mas fuerte.
 const SENAL_MINIMA_DBM = -80;
@@ -47,7 +59,7 @@ const UBICACION_POR_ROUTERS_SQL = (bssidsJson) => `
       -- redondearia los pesos a 0.
       CASE WHEN s.dbm IS NULL THEN 1.0 ELSE POWER(CAST(10 AS FLOAT), s.dbm / 20.0) END AS peso
     FROM (${ROUTERS_DE_LECTURA_SQL(bssidsJson)}) s
-    JOIN dbo.BssidsArea ba ON ba.Bssid = s.bssid
+    JOIN (${ROUTERS_CONOCIDOS_SQL}) ba ON ba.Bssid = s.bssid
     WHERE ba.Latitud IS NOT NULL AND ba.Longitud IS NOT NULL
   ) r
   WHERE r.dbm IS NULL OR r.dbm >= ${SENAL_MINIMA_DBM} OR r.mejorDbm < ${SENAL_MINIMA_DBM}
@@ -303,7 +315,7 @@ async function actualizarAlerta(pool, { equipoId, deviceRecordId, bssids, ip, la
         a.Nombre AS areaAsignada,
         (SELECT TOP 1 ad.Nombre
          FROM (${ROUTERS_DE_LECTURA_SQL('@bssids')}) j
-         JOIN dbo.BssidsArea ba ON ba.Bssid = j.bssid
+         JOIN (${ROUTERS_CONOCIDOS_SQL}) ba ON ba.Bssid = j.bssid
          JOIN dbo.Areas ad ON ad.Id = ba.AreaId) AS areaDetectada
       FROM dbo.Equipos e
       LEFT JOIN dbo.Personal p ON p.Id = e.PersonalId
@@ -687,4 +699,96 @@ async function getTurnos(config) {
   return result.recordset;
 }
 
-module.exports = { insertRecords, upsertEquipoRegistro, getEquiposConUltimaUbicacion, getAreas, getTurnos, pingDb };
+// Aprendizaje de APs: ventana de lecturas, senal minima para decir "este AP
+// esta cerca del PC", lecturas minimas y fraccion de ellas que tienen que
+// venir de la misma area para asignarle el AP.
+const APRENDER_DIAS = 14;
+const APRENDER_SENAL_FUERTE_DBM = -65;
+const APRENDER_MIN_LECTURAS = 3;
+const APRENDER_DOMINIO = 0.6;
+
+/**
+ * Para cada BSSID que no esta registrado a mano, las areas de los PCs que lo
+ * oyen fuerte (lecturas de los ultimos dias, solo con senal), y cual gana:
+ * la de mas equipos distintos y mas lecturas, si junta al menos
+ * APRENDER_MIN_LECTURAS y el APRENDER_DOMINIO de las lecturas fuertes de ese
+ * BSSID. Supone que, la mayor parte del tiempo, cada PC esta en su area
+ * asignada; un PC que sale de vez en cuando no alcanza a cambiar el resultado.
+ */
+const APRENDIZAJE_CTE_SQL = `
+  -- Las lecturas antiguas guardan los BSSID como texto: JSON_VALUE solo se
+  -- aplica dentro de un CASE por tipo, porque SQL Server no garantiza el
+  -- orden en que evalua las condiciones del WHERE.
+  WITH lecturas AS (
+    SELECT LOWER(CASE WHEN j.type = 5 THEN JSON_VALUE(j.value, '$.bssid') END) AS bssid,
+           CASE WHEN j.type = 5 THEN TRY_CAST(JSON_VALUE(j.value, '$.dBm') AS FLOAT) END AS dbm,
+           dr.EquipoId, p.AreaId
+    FROM dbo.DeviceRecords dr
+    JOIN dbo.Equipos e ON e.Id = dr.EquipoId
+    JOIN dbo.Personal p ON p.Id = e.PersonalId
+    CROSS APPLY OPENJSON(CASE WHEN ISJSON(dr.Bssids) = 1 THEN dr.Bssids END) j
+    WHERE dr.ReceivedAt >= DATEADD(DAY, -${APRENDER_DIAS}, SYSUTCDATETIME())
+  ),
+  fuertes AS (
+    SELECT * FROM lecturas WHERE dbm >= ${APRENDER_SENAL_FUERTE_DBM}
+  ),
+  por_area AS (
+    SELECT bssid, AreaId, COUNT(*) AS lecturas, COUNT(DISTINCT EquipoId) AS equipos, AVG(dbm) AS dbmPromedio
+    FROM fuertes WHERE bssid IS NOT NULL
+    GROUP BY bssid, AreaId
+  ),
+  ranking AS (
+    SELECT pa.*, SUM(lecturas) OVER (PARTITION BY bssid) AS lecturasTotal,
+           ROW_NUMBER() OVER (PARTITION BY bssid ORDER BY equipos DESC, lecturas DESC, dbmPromedio DESC) AS n
+    FROM por_area pa
+  ),
+  -- Punto dentro del area: el centro del poligono si cae adentro; si no
+  -- (area en forma de L o con varias partes), un punto de su superficie.
+  areas AS (
+    SELECT a.Id,
+      CASE WHEN a.Poligono.STContains(a.Poligono.EnvelopeCenter()) = 1 THEN a.Poligono.EnvelopeCenter().Lat
+           ELSE geometry::STGeomFromWKB(a.Poligono.STAsBinary(), 4326).STPointOnSurface().STY END AS lat,
+      CASE WHEN a.Poligono.STContains(a.Poligono.EnvelopeCenter()) = 1 THEN a.Poligono.EnvelopeCenter().Long
+           ELSE geometry::STGeomFromWKB(a.Poligono.STAsBinary(), 4326).STPointOnSurface().STX END AS lon
+    FROM dbo.Areas a WHERE a.Poligono IS NOT NULL
+  ),
+  candidatos AS (
+    SELECT r.bssid, r.AreaId, ar.lat, ar.lon, r.lecturas, r.equipos
+    FROM ranking r
+    JOIN areas ar ON ar.Id = r.AreaId
+    WHERE r.n = 1
+      AND r.lecturas >= ${APRENDER_MIN_LECTURAS}
+      AND r.lecturas * 1.0 / r.lecturasTotal >= ${APRENDER_DOMINIO}
+      AND NOT EXISTS (SELECT 1 FROM dbo.BssidsArea m WHERE m.Bssid = r.bssid)
+  )
+`;
+
+/**
+ * Asigna a su area los APs que nadie registro a mano, con lo que oyen los
+ * PCs: el AP queda en un punto dentro del poligono de esa area. Asi un PC
+ * que oye esos APs aparece dentro del area correcta sin trabajo en terreno.
+ * No da la posicion exacta dentro del area (para eso hay que registrar el AP
+ * a mano). Devuelve cuantos APs quedaron aprendidos.
+ */
+async function aprenderBssids(config) {
+  const pool = await getPool(config);
+  const result = await pool.request().query(`
+    ${APRENDIZAJE_CTE_SQL}
+    MERGE dbo.BssidsAprendidos AS t
+    USING candidatos AS s
+    ON t.Bssid = s.bssid
+    WHEN MATCHED THEN UPDATE SET
+      AreaId = s.AreaId, Latitud = s.lat, Longitud = s.lon,
+      Lecturas = s.lecturas, Equipos = s.equipos, ActualizadoEn = SYSUTCDATETIME()
+    WHEN NOT MATCHED THEN
+      INSERT (Bssid, AreaId, Latitud, Longitud, Lecturas, Equipos, ActualizadoEn)
+      VALUES (s.bssid, s.AreaId, s.lat, s.lon, s.lecturas, s.equipos, SYSUTCDATETIME());
+    SELECT COUNT(*) AS total FROM dbo.BssidsAprendidos;
+  `);
+  return result.recordset[0].total;
+}
+
+module.exports = {
+  insertRecords, upsertEquipoRegistro, getEquiposConUltimaUbicacion, getAreas, getTurnos, pingDb, aprenderBssids,
+  APRENDIZAJE_CTE_SQL,
+};
