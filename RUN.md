@@ -182,8 +182,6 @@ Rutas de lectura:
 - `GET /api/equipos`: un renglon por equipo con su persona/area/faena, ultima
   ubicacion y `alerta` si esa ubicacion cae fuera del poligono del area asignada.
   La ubicacion es el centroide ponderado por senal de los routers de `dbo.BssidsArea`
-  (y de los que el backend aprendio solo en `dbo.BssidsAprendidos`, cada 30 min, segun
-  el area de los PCs que los oyen fuerte)
   que ve la lectura (peso 10^(dBm/20); se ignoran los de menos de -80 dBm si hay
   alguno mas fuerte) con coordenadas; si no ve ninguno y su IP local cae en un rango de
   `dbo.RangosIp` (subredes de la faena), la coordenada de ese rango; si no, la que mando

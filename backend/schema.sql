@@ -188,20 +188,3 @@ BEGIN
         AreaId INT NULL REFERENCES dbo.Areas(Id)
     );
 END;
-
--- APs que nadie registro a mano y que el backend asigno solo a un area, segun
--- en que area estan los PCs que los oyen fuerte (ver aprenderBssids en
--- src/db.js). La coordenada es un punto dentro del poligono del area. Lo
--- registrado a mano en BssidsArea siempre tiene prioridad.
-IF OBJECT_ID('dbo.BssidsAprendidos', 'U') IS NULL
-BEGIN
-    CREATE TABLE dbo.BssidsAprendidos (
-        Bssid NVARCHAR(17) NOT NULL PRIMARY KEY,
-        AreaId INT NOT NULL REFERENCES dbo.Areas(Id),
-        Latitud DECIMAL(9,6) NOT NULL,
-        Longitud DECIMAL(9,6) NOT NULL,
-        Lecturas INT NOT NULL,
-        Equipos INT NOT NULL,
-        ActualizadoEn DATETIME2 NOT NULL
-    );
-END;
